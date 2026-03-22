@@ -1,3 +1,4 @@
+import type { EscrowDeployPreview } from "@/types/tanda-escrow-preview";
 import { prisma } from "@/lib/prisma";
 import {
   approveMilestone,
@@ -35,6 +36,173 @@ export async function milestoneIndexForUser(
   const idx = turnos.findIndex((t) => t.participante_id === userId);
   if (idx < 0) throw new Error("User is not a participant");
   return String(idx);
+}
+
+export type { EscrowDeployPreview };
+
+/** Mismos términos que se despliegan / que quedaron en cadena para un periodo. */
+export async function buildEscrowPreviewForPeriod(
+  tandaId: string,
+  periodo: number
+): Promise<EscrowDeployPreview> {
+  const tanda = await prisma.tanda.findUnique({
+    where: { id: tandaId },
+  });
+  if (!tanda) throw new Error("Tanda no encontrada");
+  if (periodo < 1 || periodo > tanda.num_participantes) {
+    throw new Error("Periodo no válido");
+  }
+
+  const turnoReceiver = await prisma.turno.findFirst({
+    where: { tanda_id: tandaId, numero_turno: periodo },
+    include: { participante: { include: { wallet: true } } },
+  });
+  if (!turnoReceiver?.participante.wallet?.stellar_public_key) {
+    throw new Error(
+      "El receptor de este periodo no tiene wallet Stellar registrada"
+    );
+  }
+
+  const n = tanda.num_participantes;
+  const monto = Number(tanda.monto_aportacion);
+  const totalAmount = n * monto;
+  const milestones = Array.from({ length: n }, (_, i) => ({
+    title: `Aportación periodo ${periodo} — participante ${i + 1}`,
+    description: `Fondo acumulado para el premio del periodo ${periodo}`,
+  }));
+
+  const row = await prisma.tandaEscrow.findUnique({
+    where: {
+      tanda_id_periodo: { tanda_id: tandaId, periodo },
+    },
+  });
+
+  return {
+    periodo,
+    title: `Tanda ${tanda.nombre} — periodo ${periodo}`,
+    description: `Escrow single-release: ${n} aportaciones, un desembolso al receptor del turno.`,
+    amount: totalAmount,
+    platformFee: 0,
+    receiver: turnoReceiver.participante.wallet.stellar_public_key.trim(),
+    receiverDisplayName:
+      turnoReceiver.participante.name ||
+      turnoReceiver.participante.phone ||
+      "Participante",
+    milestones,
+    numParticipantes: n,
+    montoAportacion: monto,
+    contractId: row?.contract_id ?? null,
+    engagementId: row?.engagement_id ?? null,
+  };
+}
+
+/** Lectura del contrato (modal) para participantes u organizador una vez desplegado o para consultar términos. */
+export async function getEscrowContractViewForMember(
+  tandaId: string,
+  userId: string,
+  periodo: number
+): Promise<EscrowDeployPreview> {
+  const tanda = await prisma.tanda.findUnique({
+    where: { id: tandaId },
+    include: { turnos: { select: { participante_id: true } } },
+  });
+  if (!tanda) throw new Error("Tanda no encontrada");
+  const isOrganizer = tanda.organizador_id === userId;
+  const isParticipant = tanda.turnos.some((t) => t.participante_id === userId);
+  if (!isOrganizer && !isParticipant) {
+    throw new Error("Solo participantes de la tanda pueden ver este contrato");
+  }
+  return buildEscrowPreviewForPeriod(tandaId, periodo);
+}
+
+/** Vista previa para el organizador (modal) antes de firmar el despliegue en cadena. */
+export async function getEscrowDeployPreviewForOrganizer(
+  tandaId: string,
+  userId: string
+): Promise<EscrowDeployPreview> {
+  const tanda = await prisma.tanda.findUnique({
+    where: { id: tandaId },
+    include: {
+      organizador: { include: { wallet: true } },
+    },
+  });
+  if (!tanda) throw new Error("Tanda no encontrada");
+  if (tanda.organizador_id !== userId) {
+    throw new Error("Solo el organizador puede desplegar el escrow");
+  }
+  if (!tanda.organizador.wallet?.stellar_public_key) {
+    throw new Error(
+      "Registra tu wallet Stellar en Perfil antes de desplegar el escrow"
+    );
+  }
+  if (tanda.estado !== "activa") {
+    throw new Error("La tanda debe estar activa");
+  }
+
+  const periodo = tanda.periodo_actual;
+  const existing = await prisma.tandaEscrow.findUnique({
+    where: {
+      tanda_id_periodo: { tanda_id: tandaId, periodo },
+    },
+  });
+  if (existing) {
+    throw new Error("Ya existe un contrato escrow para este periodo");
+  }
+
+  return buildEscrowPreviewForPeriod(tandaId, periodo);
+}
+
+/** Tras desplegar y firmar con la wallet del organizador, registra el contrato en base de datos. */
+export async function finalizeOrganizerEscrowDeploy(
+  tandaId: string,
+  userId: string,
+  engagementId: string,
+  options?: { txHash?: string }
+): Promise<{ contractId: string }> {
+  const tanda = await prisma.tanda.findUnique({
+    where: { id: tandaId },
+    include: { organizador: { include: { wallet: true } } },
+  });
+  if (!tanda) throw new Error("Tanda no encontrada");
+  if (tanda.organizador_id !== userId) {
+    throw new Error("Solo el organizador puede registrar el escrow");
+  }
+  const pubkey = tanda.organizador.wallet?.stellar_public_key?.trim();
+  if (!pubkey) throw new Error("Wallet del organizador no encontrada");
+
+  const periodo = tanda.periodo_actual;
+  const existing = await prisma.tandaEscrow.findUnique({
+    where: {
+      tanda_id_periodo: { tanda_id: tandaId, periodo },
+    },
+  });
+  if (existing) {
+    return { contractId: existing.contract_id };
+  }
+
+  if (options?.txHash) {
+    await syncIndexerFromTx(options.txHash);
+  }
+
+  const contractId =
+    (await findContractIdByEngagement(engagementId, pubkey)) ?? "";
+  if (!contractId) {
+    throw new Error(
+      "No se encontró el contrato en el indexador. Espera unos segundos y usa «Registrar contrato» de nuevo, o revisa la red."
+    );
+  }
+
+  await prisma.tandaEscrow.create({
+    data: {
+      tanda_id: tandaId,
+      periodo,
+      contract_id: contractId,
+      engagement_id: engagementId,
+      estado: "deployed",
+    },
+  });
+
+  return { contractId };
 }
 
 export async function ensureEscrowForCurrentPeriod(tandaId: string) {

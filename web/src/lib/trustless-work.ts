@@ -1,6 +1,11 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { signTransaction, submitTransaction } from "@/lib/stellar";
 
+/**
+ * Flujo con hooks del SDK (`@trustless-work/escrow`): ver `useInitializeEscrowDeploy`
+ * y `TrustlessEscrowProvider` — deployEscrow → /api/trustless/sign-xdr → sendTransaction.
+ * Este módulo sigue siendo la base para el servidor (tanda-escrow, /api/trustless/deploy).
+ */
 const TYPE = "single-release" as const;
 
 /** USDC testnet (Stellar) — mismo issuer que en tu colección Postman. */

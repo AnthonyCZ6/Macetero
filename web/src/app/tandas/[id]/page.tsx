@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { EscrowContractViewButton } from "@/components/EscrowContractViewButton";
+import { EscrowOrganizerDeploySection } from "@/components/EscrowOrganizerDeploySection";
 import { useBackendUser } from "@/hooks/useBackendUser";
 
 type Detail = {
   id: string;
   nombre: string;
+  organizadorId?: string;
+  organizador?: { id: string; name: string | null; phone: string | null };
   montoAportacion: number;
   frecuencia: string;
   numParticipantes: number;
@@ -15,6 +19,8 @@ type Detail = {
   periodoActual: number;
   codigoInvitacion: string;
   montoPremio: number;
+  trustlessEscrowEnabled?: boolean;
+  trustlessClientReady?: boolean;
   participants: Array<{
     userId: string;
     name: string;
@@ -28,7 +34,20 @@ type Detail = {
     total: number;
     completo: boolean;
   }>;
+  escrows?: Array<{
+    periodo: number;
+    contractId: string;
+    engagementId: string;
+    estado: string;
+  }>;
 };
+
+function stellarExpertContractUrl(contractId: string): string {
+  const base =
+    process.env.NEXT_PUBLIC_STELLAR_EXPERT_CONTRACT_BASE?.replace(/\/$/, "") ??
+    "https://stellar.expert/explorer/testnet/contract";
+  return `${base}/${encodeURIComponent(contractId)}`;
+}
 
 export default function TandaDetailPage() {
   const params = useParams();
@@ -37,6 +56,12 @@ export default function TandaDetailPage() {
   const [data, setData] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [payMsg, setPayMsg] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const refreshTanda = useCallback(async () => {
+    const refresh = await fetch(`/api/tandas/${id}`).then((r) => r.json());
+    if (!refresh.error) setData(refresh);
+  }, [id]);
 
   useEffect(() => {
     let c = false;
@@ -67,8 +92,7 @@ export default function TandaDetailPage() {
       return;
     }
     setPayMsg(`Pago registrado. Tx: ${j.txHash?.slice(0, 16)}…`);
-    const refresh = await fetch(`/api/tandas/${id}`).then((r) => r.json());
-    if (!refresh.error) setData(refresh);
+    await refreshTanda();
   }
 
   if (err || !data) {
@@ -87,6 +111,41 @@ export default function TandaDetailPage() {
     userId &&
     data.estado === "activa" &&
     miParticipacion?.pagoActual?.estado !== "pagado";
+
+  const escrows = data.escrows ?? [];
+  const tieneEscrowPeriodoActual = escrows.some(
+    (e) => e.periodo === data.periodoActual
+  );
+  const esMiembro = Boolean(
+    userId &&
+      (data.organizadorId === userId ||
+        data.organizador?.id === userId ||
+        data.participants.some((p) => p.userId === userId))
+  );
+
+  const puedeDesplegarEscrow =
+    Boolean(userId) &&
+    (data.organizadorId === userId || data.organizador?.id === userId) &&
+    data.estado === "activa" &&
+    data.trustlessEscrowEnabled === true &&
+    data.trustlessClientReady === true &&
+    !tieneEscrowPeriodoActual;
+
+  const escrowDestacado =
+    escrows.find((e) => e.periodo === data.periodoActual) ?? escrows[0];
+  const otrosEscrows = escrowDestacado
+    ? escrows.filter((e) => e.contractId !== escrowDestacado.contractId)
+    : [];
+
+  async function copyContract(id: string) {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      /* ignore */
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -108,6 +167,137 @@ export default function TandaDetailPage() {
           <strong className="text-[var(--mx-green)]">${data.montoPremio}</strong>
         </p>
       </div>
+
+      {puedeDesplegarEscrow && userId && (
+        <section
+          className="rounded-2xl border border-[color-mix(in_srgb,var(--mx-green)_22%,transparent)] bg-white/90 p-4 shadow-sm"
+          aria-label="Desplegar contrato escrow"
+        >
+          <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--mx-ink)]">
+            Contrato escrow (periodo actual)
+          </h2>
+          <p className="mt-1 text-xs text-[var(--mx-fg-muted)]">
+            Aún no hay contrato en cadena para este periodo. Abre el modal,
+            revisa los términos y luego podrás firmar con tu wallet de Perfil.
+          </p>
+          <EscrowOrganizerDeploySection
+            tandaId={id}
+            userId={userId}
+            onDeployed={() => void refreshTanda()}
+          />
+        </section>
+      )}
+
+      {escrows.length > 0 && (
+        <section
+          className="rounded-2xl border border-[color-mix(in_srgb,var(--mx-green)_28%,transparent)] bg-[color-mix(in_srgb,var(--mx-green)_8%,white)] p-4 shadow-sm"
+          aria-label="Contratos escrow en cadena"
+        >
+          <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--mx-ink)]">
+            Escrow Trustless (contrato en Stellar)
+          </h2>
+          <p className="mt-1 text-xs text-[var(--mx-fg-muted)]">
+            Cada periodo puede tener un contrato donde se acumulan las aportaciones
+            antes del desembolso. Puedes verificarlo en el explorador.
+          </p>
+          {escrowDestacado && (
+            <div className="mt-3 rounded-xl border border-[var(--mx-green)]/35 bg-white/90 px-3 py-2.5">
+              <p className="text-[11px] font-semibold text-[var(--mx-fg-muted)]">
+                {escrowDestacado.periodo === data.periodoActual
+                  ? `Periodo actual (${data.periodoActual})`
+                  : `Contrato (periodo ${escrowDestacado.periodo})`}
+              </p>
+              <p className="mt-1 break-all font-mono text-xs text-[var(--mx-ink)]">
+                {escrowDestacado.contractId}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => copyContract(escrowDestacado.contractId)}
+                  className="rounded-lg border border-[var(--mx-brown)]/20 bg-white px-2 py-1 text-xs font-medium text-[var(--mx-ink)]"
+                >
+                  {copiedId === escrowDestacado.contractId
+                    ? "Copiado"
+                    : "Copiar contrato"}
+                </button>
+                <a
+                  href={stellarExpertContractUrl(escrowDestacado.contractId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg bg-[var(--mx-green)] px-2 py-1 text-xs font-semibold text-white hover:bg-[var(--mx-green-hover)]"
+                >
+                  Ver en explorador
+                </a>
+                {userId && esMiembro && data.trustlessEscrowEnabled && (
+                  <EscrowContractViewButton
+                    tandaId={id}
+                    userId={userId}
+                    periodo={escrowDestacado.periodo}
+                    className="rounded-lg border border-[var(--mx-green)]/40 bg-[color-mix(in_srgb,var(--mx-green)_12%,white)] px-2 py-1 text-xs font-semibold text-[var(--mx-ink)] hover:bg-[color-mix(in_srgb,var(--mx-green)_18%,white)]"
+                  >
+                    Ver contrato (modal)
+                  </EscrowContractViewButton>
+                )}
+              </div>
+              <p className="mt-2 text-[10px] text-[var(--mx-fg-muted)]">
+                Engagement:{" "}
+                <span className="font-mono text-[var(--mx-brown-light)]">
+                  {escrowDestacado.engagementId}
+                </span>
+                {" · "}
+                Estado: {escrowDestacado.estado}
+              </p>
+            </div>
+          )}
+          {otrosEscrows.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs font-medium text-[var(--mx-green)]">
+                Otros contratos ({otrosEscrows.length})
+              </summary>
+              <ul className="mt-2 space-y-2 text-xs">
+                {otrosEscrows.map((e) => (
+                    <li
+                      key={`${e.periodo}-${e.contractId}`}
+                      className="rounded-lg border border-[var(--mx-cream-warm)] bg-white/80 px-2 py-2"
+                    >
+                      <span className="font-medium">Periodo {e.periodo}</span>
+                      <p className="break-all font-mono text-[11px] text-[var(--mx-ink)]">
+                        {e.contractId}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copyContract(e.contractId)}
+                          className="text-[var(--mx-green)] underline-offset-2 hover:underline"
+                        >
+                          Copiar
+                        </button>
+                        <a
+                          href={stellarExpertContractUrl(e.contractId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[var(--mx-green)] underline-offset-2 hover:underline"
+                        >
+                          Explorador
+                        </a>
+                        {userId && esMiembro && data.trustlessEscrowEnabled && (
+                          <EscrowContractViewButton
+                            tandaId={id}
+                            userId={userId}
+                            periodo={e.periodo}
+                            className="text-[11px] font-semibold text-[var(--mx-brown)] underline-offset-2 hover:underline"
+                          >
+                            Ver contrato
+                          </EscrowContractViewButton>
+                        )}
+                      </div>
+                    </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
+      )}
 
       {!userId && data.estado === "activa" && (
         <p className="mx-highlight rounded-xl px-4 py-3 text-sm">

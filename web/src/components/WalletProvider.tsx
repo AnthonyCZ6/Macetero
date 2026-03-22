@@ -26,7 +26,7 @@ interface WalletState {
 
 export const WalletContext = createContext<WalletState | null>(null);
 
-const NATIVE_TOKEN = process.env.NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT!;
+const NATIVE_TOKEN = process.env.NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT ?? "";
 
 function friendlyWebAuthnError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
@@ -131,30 +131,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const kit = kitRef.current;
     if (!contractId || !kit) return;
     try {
-      const { Address, Contract, rpc, scValToNative, TransactionBuilder } =
-        await import("@stellar/stellar-sdk");
-      const server = new rpc.Server(process.env.NEXT_PUBLIC_RPC_URL!);
-      const tokenContract = new Contract(NATIVE_TOKEN);
-      const call = tokenContract.call(
-        "balance",
-        new Address(contractId).toScVal()
+      const res = await fetch(
+        `/api/wallet/soroban-balance?contractId=${encodeURIComponent(contractId)}`,
+        { cache: "no-store" }
       );
-      const simResult = await server.simulateTransaction(
-        new TransactionBuilder(await server.getAccount(contractId), {
-          fee: "100",
-          networkPassphrase: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE!,
-        })
-          .addOperation(call)
-          .setTimeout(30)
-          .build()
-      );
-      if ("result" in simResult && simResult.result) {
-        const raw = scValToNative(simResult.result.retval);
-        const stroops = typeof raw === "bigint" ? raw : BigInt(String(raw));
-        setBalance((Number(stroops) / 10_000_000).toFixed(7));
-      } else {
+      if (!res.ok) {
         setBalance("0");
+        return;
       }
+      const data = (await res.json()) as {
+        displayXlm?: string;
+        nativeXlm?: number;
+        sacXlm?: number;
+      };
+      setBalance(data.displayXlm ?? "0");
     } catch {
       setBalance("0");
     }

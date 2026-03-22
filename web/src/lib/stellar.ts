@@ -56,7 +56,10 @@ export async function submitTransaction(signedXdr: string) {
   return { hash: response.hash, status: result.status };
 }
 
-/** Get the native XLM balance of a classic G... account. */
+/**
+ * Saldo de XLM **nativo** en cadena (cuenta clásica `G…` o contrato `C…`).
+ * Coincide con lo que suele mostrar Stellar Expert en “balances” de la cuenta.
+ */
 export async function getBalance(publicKey: string): Promise<string> {
   const server = getServer();
   try {

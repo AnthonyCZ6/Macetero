@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useWallet } from "@/hooks/useWallet";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import { TandaPreviewList } from "@/components/TandaPreviewList";
+import { XlmMxnReference } from "@/components/XlmMxnReference";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -65,6 +66,9 @@ export function Dashboard() {
           <p className="text-sm font-medium text-[var(--mx-fg-muted)]">
             Smart account (testnet)
           </p>
+          <p className="mt-1 text-xs leading-snug text-[var(--mx-fg-muted)]">
+            Incluye XLM nativo del contrato (como en el explorador) y, si aplica, saldo vía contrato SAC; se muestra el valor más alto.
+          </p>
           <div className="mt-2 flex flex-wrap items-baseline gap-2">
             <span className="text-4xl font-bold tabular-nums text-[var(--mx-green)]">
               {balance ?? "—"}
@@ -77,6 +81,9 @@ export function Dashboard() {
             >
               Actualizar
             </button>
+          </div>
+          <div className="mt-3">
+            <XlmMxnReference variant="dashboard" balanceXlm={balance} />
           </div>
           <p className="mt-2 break-all font-mono text-xs text-[var(--mx-brown-light)]">
             {short}

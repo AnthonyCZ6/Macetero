@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { trustlessWorkConfigured } from "@/lib/tanda-escrow";
 
 export async function GET(
   _req: NextRequest,
@@ -20,6 +21,15 @@ export async function GET(
         },
         pagos: {
           orderBy: [{ periodo: "asc" }, { pagador_id: "asc" }],
+        },
+        escrows: {
+          orderBy: { periodo: "desc" },
+          select: {
+            periodo: true,
+            contract_id: true,
+            engagement_id: true,
+            estado: true,
+          },
         },
       },
     });
@@ -66,9 +76,22 @@ export async function GET(
       });
     }
 
+    const escrows = tanda.escrows.map((e) => ({
+      periodo: e.periodo,
+      contractId: e.contract_id,
+      engagementId: e.engagement_id,
+      estado: e.estado,
+    }));
+
+    const trustlessEscrowEnabled = trustlessWorkConfigured();
+    const trustlessClientReady = Boolean(
+      process.env.NEXT_PUBLIC_TRUSTLESS_WORK_API_KEY?.trim()
+    );
+
     return NextResponse.json({
       id: tanda.id,
       nombre: tanda.nombre,
+      organizadorId: tanda.organizador_id,
       organizador: tanda.organizador,
       montoAportacion: Number(tanda.monto_aportacion),
       frecuencia: tanda.frecuencia,
@@ -81,6 +104,9 @@ export async function GET(
       montoPremio: Number(tanda.monto_aportacion) * tanda.num_participantes,
       participants,
       periodos,
+      escrows,
+      trustlessEscrowEnabled,
+      trustlessClientReady,
     });
   } catch (e) {
     console.error("Get tanda error:", e);

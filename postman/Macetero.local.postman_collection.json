@@ -1,0 +1,100 @@
+{
+  "info": {
+    "name": "Macetero (local)",
+    "description": "Pruebas contra `npm run dev` en http://localhost:3000\n\n**Trustless deploy:** requiere en `.env` / `web/.env.local`: `TRUSTLESS_WORK_ENABLED=true`, `TRUSTLESS_WORK_API_KEY`, `TRUSTLESS_SIGNER_SECRET` (o `TRUSTLESS_WORK_OPERATOR_SECRET`) con la cuenta que firma. Los `roles.*` del JSON deben ser coherentes con esa cuenta (o la wallet Macetero por defecto).\n\n**Webhook Etherfuse:** si `ETHERFUSE_WEBHOOK_SECRET` está vacío, el servidor acepta sin firma. Si no, la colección calcula `x-signature` (HMAC-SHA256 hex del body) en el script de carpeta.\n\nImportar: File → Import → este archivo.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "ETHERFUSE_WEBHOOK_SECRET", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Raíz",
+      "item": [
+        {
+          "name": "GET / (comprueba que el servidor responde)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trustless",
+      "item": [
+        {
+          "name": "POST /api/trustless/deploy (single-release)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"engagementId\": \"postman-{{$timestamp}}\",\n  \"title\": \"Prueba Postman\",\n  \"description\": \"Escrow de prueba\",\n  \"amount\": 10,\n  \"platformFee\": 0,\n  \"roles\": {\n    \"approver\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"serviceProvider\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"platformAddress\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"releaseSigner\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"disputeResolver\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"receiver\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\"\n  },\n  \"milestones\": [\n    { \"description\": \"Primer hito\" }\n  ]\n}\n"
+            },
+            "url": "{{baseUrl}}/api/trustless/deploy"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Etherfuse webhook",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const secret = pm.collectionVariables.get('ETHERFUSE_WEBHOOK_SECRET');",
+              "if (!secret) return;",
+              "const raw = pm.request.body && pm.request.body.raw;",
+              "if (!raw) return;",
+              "const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
+              "pm.request.headers.upsert({ key: 'x-signature', value: sig });"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "POST order_updated",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_updated\": {\n    \"orderId\": \"tu-etherfuse-order-id\",\n    \"status\": \"completed\",\n    \"confirmedTxSignature\": \"abc123\"\n  }\n}\n"
+            },
+            "url": "{{baseUrl}}/api/webhooks/etherfuse"
+          }
+        },
+        {
+          "name": "POST kyc_updated",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kyc_updated\": {\n    \"customerId\": \"tu-customer-id\",\n    \"approved\": true,\n    \"updateReason\": \"\"\n  }\n}\n"
+            },
+            "url": "{{baseUrl}}/api/webhooks/etherfuse"
+          }
+        },
+        {
+          "name": "POST bank_account_updated",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bank_account_updated\": {\n    \"bankAccountId\": \"tu-bank-account-id\",\n    \"status\": \"active\"\n  }\n}\n"
+            },
+            "url": "{{baseUrl}}/api/webhooks/etherfuse"
+          }
+        }
+      ]
+    }
+  ]
+}

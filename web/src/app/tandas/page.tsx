@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import type { TandaRow } from "@/components/TandaPreviewList";
@@ -125,6 +126,7 @@ function TandaCard({ t }: { t: TandaRow }) {
 }
 
 export default function TandasPage() {
+  const router = useRouter();
   const { userId, hydrated } = useBackendUser();
   const [nombre, setNombre] = useState("");
   const [monto, setMonto] = useState("200");
@@ -211,9 +213,12 @@ export default function TandasPage() {
       return;
     }
     setMsg(
-      `Tanda creada. Código: ${data.codigoInvitacion}. Turno asignado: ${data.turnoAsignado}.`
+      `Tanda creada. Código: ${data.codigoInvitacion}. Turno asignado: ${data.turnoAsignado}. Abriendo detalle…`
     );
     refreshLista();
+    if (data.tandaId) {
+      router.push(`/tandas/${data.tandaId}`);
+    }
     fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
       .then((r) => r.json())
       .then((d) => {

@@ -1,8 +1,13 @@
-/** Max simultaneous tandas (pendiente + activa) by user level. */
+/**
+ * Max simultaneous tandas (pendiente + activa) by user level.
+ * Escrow (firmar deploy y enviar a Stellar) no usa este límite: cualquier organizador
+ * con wallet en Perfil puede desplegar si Trustless está configurado.
+ */
 export function maxTandasForLevel(level: string): number {
   if (level === "AVANZADO") return Infinity;
-  if (level === "CONFIABLE") return 3;
-  return 1;
+  if (level === "CONFIABLE") return 5;
+  if (level === "BASICO") return 3;
+  return 3;
 }
 
 /** Human-readable label for max simultaneous tandas (for UI). */

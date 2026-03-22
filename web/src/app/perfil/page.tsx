@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import { levelDisplayName, maxTandasLabel } from "@/lib/tanda-limits";
 import { MaceteroLogo } from "@/components/MaceteroLogo";
+import { ActaApiKeySection } from "@/components/ActaApiKeySection";
 import type { ReactNode } from "react";
 
 function initialsFromName(name: string | null | undefined): string {
@@ -173,11 +174,12 @@ export default function PerfilPage() {
 
           <div className="mt-6 space-y-2 rounded-3xl bg-[color-mix(in_srgb,var(--mx-cream)_85%,white)] p-2 pb-8">
             <MenuRow
-              href="/receive"
+              href="/perfil/mi-ahorro"
               icon={<span aria-hidden>💰</span>}
               title="Mi ahorro"
-              subtitle="Ver movimientos y recibir"
+              subtitle="Saldo, movimientos y referencia XLM"
             />
+            <ActaApiKeySection userId={userId} />
             <MenuRow
               href="/liga"
               icon={<span aria-hidden>🏆</span>}
