@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                    String        @id @default(uuid())
+  phone                 String?       @unique
+  email                 String?       @unique
+  name                  String?
+  pin_hash              String
+  etherfuse_customer_id String?       @unique
+  kyc_status            String        @default("not_started")
+  level                 String        @default("BASICO")
+  score                 Int           @default(0)
+  streak                Int           @default(0)
+  blocked_tandas        Boolean       @default(false)
+  block_undate          DateTime?
+  createdAt             DateTime      @default(now())
+  wallet                Wallet?
+  bankAccounts          BankAccount[]
+  orders                Order[]
+  organizedTandas       Tanda[]       @relation("Organizer")
+  turnos                Turno[]
+  pagos                 Pago[]
+}
+
+model Wallet {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id])
+  stellar_public_key  String   @unique
+  encrypted_secret    String
+  etherfuse_wallet_id String?  @unique
+  createdAt           DateTime @default(now())
+}
+
+model BankAccount {
+  id                        String   @id @default(uuid())
+  userId                    String
+  user                      User     @relation(fields: [userId], references: [id])
+  etherfuse_bank_account_id String?  @unique
+  clabe                     String
+  status                    String   @default("pending")
+  createdAt                 DateTime @default(now())
+}
+
+model Order {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+  etherfuse_order_id String?  @unique
+  type               String
+  amount             Decimal
+  status             String   @default("created")
+  deposit_clabe      String?
+  tx_hash            String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Tanda {
+  id                 String   @id @default(uuid())
+  nombre             String
+  organizador_id     String
+  organizador        User     @relation("Organizer", fields: [organizador_id], references: [id])
+  monto_aportacion   Decimal
+  frecuencia         String   @default("semanal")
+  num_participantes  Int
+  fecha_inicio       DateTime
+  fecha_fin          DateTime?
+  estado             String   @default("pendiente")
+  codigo_invitacion  String   @unique
+  periodo_actual     Int      @default(0)
+  createdAt          DateTime @default(now())
+  turnos             Turno[]
+  pagos              Pago[]
+  escrows            TandaEscrow[]
+
+  @@index([estado])
+  @@index([codigo_invitacion])
+}
+
+model TandaEscrow {
+  id              String   @id @default(uuid())
+  tanda_id        String
+  tanda           Tanda    @relation(fields: [tanda_id], references: [id], onDelete: Cascade)
+  periodo         Int
+  contract_id     String   @unique
+  engagement_id   String
+  estado          String   @default("deployed")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tanda_id, periodo])
+  @@index([tanda_id])
+}
+
+model Turno {
+  id                String   @id @default(uuid())
+  tanda_id          String
+  tanda             Tanda    @relation(fields: [tanda_id], references: [id])
+  participante_id   String
+  participante      User     @relation(fields: [participante_id], references: [id])
+  numero_turno      Int
+  estado_turno      String   @default("pendiente")
+  fecha_cobro       DateTime?
+  monto_premio      Decimal
+  premio_entregado  Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@unique([tanda_id, participante_id])
+  @@unique([tanda_id, numero_turno])
+  @@index([tanda_id])
+}
+
+model Pago {
+  id                String    @id @default(uuid())
+  tanda_id          String
+  tanda             Tanda     @relation(fields: [tanda_id], references: [id])
+  pagador_id        String
+  pagador           User      @relation(fields: [pagador_id], references: [id])
+  periodo           Int
+  monto_base        Decimal
+  cargo_retraso     Decimal   @default(0)
+  monto_total       Decimal
+  fecha_vencimiento DateTime?
+  fecha_pago        DateTime?
+  estado            String    @default("pendiente")
+  dias_retraso      Int       @default(0)
+  stellar_tx_hash   String?
+  createdAt         DateTime  @default(now())
+
+  @@unique([tanda_id, pagador_id, periodo])
+  @@index([tanda_id, periodo])
+  @@index([estado, fecha_vencimiento])
+}

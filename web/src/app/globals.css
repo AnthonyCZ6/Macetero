@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+/* Paleta inspirada en bandera MX: rojo, café y verde en tonos opacos / tierra */
+:root {
+  --mx-bg: #1a1513;
+  --mx-bg-soft: #221c19;
+  --mx-cream: #f2ebe2;
+  --mx-cream-warm: #e8dfd3;
+  --mx-ink: #2a211c;
+  --mx-red: #9e5c52;
+  --mx-red-soft: #b87a6f;
+  --mx-brown: #6b5344;
+  --mx-brown-light: #8a7263;
+  --mx-green: #4d6452;
+  --mx-green-hover: #5f7a65;
+  --mx-green-muted: #6d8573;
+  --mx-fg-muted: #9a8f85;
+  /* Tema base del sitio (misma familia que login / onboarding) */
+  --background: var(--mx-cream);
+  --foreground: var(--mx-ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-mx-bg: var(--mx-bg);
+  --color-mx-bg-soft: var(--mx-bg-soft);
+  --color-mx-cream: var(--mx-cream);
+  --color-mx-cream-warm: var(--mx-cream-warm);
+  --color-mx-ink: var(--mx-ink);
+  --color-mx-red: var(--mx-red);
+  --color-mx-red-soft: var(--mx-red-soft);
+  --color-mx-brown: var(--mx-brown);
+  --color-mx-brown-light: var(--mx-brown-light);
+  --color-mx-green: var(--mx-green);
+  --color-mx-green-hover: var(--mx-green-hover);
+  --color-mx-green-muted: var(--mx-green-muted);
+  --color-mx-fg-muted: var(--mx-fg-muted);
+}
+
+body {
+  background: var(--mx-cream);
+  color: var(--mx-ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Degradado suave rojo / verde opacos en cabeceras de auth */
+.mx-auth-header-glow {
+  background:
+    linear-gradient(135deg, rgba(158, 92, 82, 0.2) 0%, transparent 45%),
+    linear-gradient(225deg, rgba(77, 100, 82, 0.15) 0%, transparent 40%);
+}
+
+.mx-onboarding-glow {
+  background:
+    radial-gradient(ellipse 80% 50% at 100% -10%, rgba(158, 94, 82, 0.35), transparent 55%),
+    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(77, 100, 82, 0.25), transparent 50%);
+}
+
+/* Superficies web a pantalla completa (colores siempre aplicados vía variables) */
+.mx-auth-page {
+  min-height: 100dvh;
+  width: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--mx-cream) 92%, white) 0%,
+    var(--mx-cream-warm) 100%
+  );
+  color: var(--mx-ink);
+}
+
+.mx-info-box {
+  border: 1px solid color-mix(in srgb, var(--mx-green) 28%, transparent);
+  background-color: color-mix(in srgb, var(--mx-green) 10%, transparent);
+}
+
+.mx-error-box {
+  border: 1px solid color-mix(in srgb, var(--mx-red) 30%, transparent);
+  background-color: color-mix(in srgb, var(--mx-red) 12%, transparent);
+  color: var(--mx-red);
+}
+
+.mx-header-auth {
+  background-color: var(--mx-bg);
+  color: #fff;
+}
+
+.mx-screen-onboarding {
+  background-color: var(--mx-bg);
+  color: #fff;
+}
+
+/* Cajas / tarjetas de información — misma familia cromática en todo el sitio */
+.mx-card {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--mx-brown) 20%, transparent);
+  background: color-mix(in srgb, white 92%, var(--mx-cream));
+  color: var(--mx-ink);
+  box-shadow: 0 1px 3px rgba(42, 33, 28, 0.06);
+}
+
+.mx-card-solid {
+  border-radius: 1rem;
+  border: 1px solid var(--mx-cream-warm);
+  background: #fff;
+  color: var(--mx-ink);
+  box-shadow: 0 1px 3px rgba(42, 33, 28, 0.07);
+}
+
+.mx-highlight {
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--mx-green) 30%, transparent);
+  background: color-mix(in srgb, var(--mx-green) 12%, var(--mx-cream));
+  color: var(--mx-ink);
+}
+
+.mx-chip-ok {
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--mx-green) 22%, var(--mx-cream));
+  color: var(--mx-green);
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.mx-chip-warn {
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--mx-red-soft) 25%, var(--mx-cream));
+  color: var(--mx-brown);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
