@@ -1,0 +1,6 @@
+{
+  "customer_updated": {
+    "customerId": "REPLACE_CUSTOMER_EF_ID",
+    "status": "verified"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "kyc_updated": {
+    "customerId": "REPLACE_CUSTOMER_EF_ID",
+    "approved": true,
+    "updateReason": "documents_verified"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "bank_account_updated": {
+    "bankAccountId": "REPLACE_BANK_EF_ID",
+    "status": "active"
+  }
+}

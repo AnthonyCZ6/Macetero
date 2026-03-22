@@ -1,0 +1,7 @@
+{
+  "order_updated": {
+    "orderId": "REPLACE_ORDER_EF_ID",
+    "status": "failed",
+    "confirmedTxSignature": null
+  }
+}

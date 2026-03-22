@@ -13,6 +13,27 @@ export const DEFAULT_TRUSTLINE_USDC_TESTNET = {
 export const DEFAULT_IMPACTA_APPROVER_G =
   "GB6MP3L6UGIDY6O6MXNLSKHLXT2T2TCMPZIZGUTOGYKOLHW7EORWMFCK";
 
+/**
+ * Wallet Stellar (testnet) de Macetero para roles de escrow Trustless.
+ * Debe ser la misma cuenta que firma con `TRUSTLESS_SIGNER_SECRET` / `TRUSTLESS_WORK_OPERATOR_SECRET`.
+ * Opcional: `TRUSTLESS_TEAM_WALLET_G` en env para otra G (p. ej. otra red o rotación).
+ */
+export const DEFAULT_TRUSTLESS_WALLET_G =
+  "GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3";
+
+/**
+ * G por defecto para todos los roles cuando no hay `TRUSTLESS_*_G` en env:
+ * prioriza `TRUSTLESS_TEAM_WALLET_G`, luego la wallet Macetero si el signer coincide, si no el signer (evita desalinear firma vs rol).
+ */
+function defaultRolePublicKey(signerPublicKey: string): string {
+  const fromEnv = process.env["TRUSTLESS_TEAM_WALLET_G"]?.trim();
+  if (fromEnv) return fromEnv;
+  if (signerPublicKey === DEFAULT_TRUSTLESS_WALLET_G) {
+    return DEFAULT_TRUSTLESS_WALLET_G;
+  }
+  return signerPublicKey;
+}
+
 function baseUrl(): string {
   return (
     process.env["TRUSTLESS_WORK_BASE_URL"] ||
@@ -69,18 +90,20 @@ export function getRoleAddresses(): TrustlessRoleAddresses {
   const useImpacta =
     process.env["TRUSTLESS_USE_IMPACTA_ROLE_DEFAULTS"] === "true";
 
+  const roleG = defaultRolePublicKey(signer);
+
   const approver =
     process.env["TRUSTLESS_APPROVER_G"] ||
-    (useImpacta ? DEFAULT_IMPACTA_APPROVER_G : signer);
+    (useImpacta ? DEFAULT_IMPACTA_APPROVER_G : roleG);
   const disputeResolver =
     process.env["TRUSTLESS_DISPUTE_RESOLVER_G"] ||
-    (useImpacta ? DEFAULT_IMPACTA_APPROVER_G : signer);
+    (useImpacta ? DEFAULT_IMPACTA_APPROVER_G : roleG);
 
   return {
     approver,
-    serviceProvider: process.env["TRUSTLESS_SERVICE_PROVIDER_G"] || signer,
-    platformAddress: process.env["TRUSTLESS_PLATFORM_ADDRESS_G"] || signer,
-    releaseSigner: process.env["TRUSTLESS_RELEASE_SIGNER_G"] || signer,
+    serviceProvider: process.env["TRUSTLESS_SERVICE_PROVIDER_G"] || roleG,
+    platformAddress: process.env["TRUSTLESS_PLATFORM_ADDRESS_G"] || roleG,
+    releaseSigner: process.env["TRUSTLESS_RELEASE_SIGNER_G"] || roleG,
     disputeResolver,
   };
 }

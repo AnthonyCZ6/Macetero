@@ -6,7 +6,9 @@
     "db:push": "npx prisma db push",
     "db:generate": "npx prisma generate",
     "db:studio": "npx prisma studio",
-    "db:test": "tsx server/test-db.ts"
+    "db:test": "tsx server/test-db.ts",
+    "test:etherfuse-webhook": "tsx server/send-etherfuse-webhook.ts",
+    "test:web": "npm run test --prefix web"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.5.0",
