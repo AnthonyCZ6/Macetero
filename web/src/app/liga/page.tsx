@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import { LigaPointsInfo } from "@/components/LigaPointsInfo";
@@ -153,13 +153,11 @@ export default function LigaPage() {
           >
             ←
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="text-2xl" aria-hidden>
               🏆
             </span>
-            <h1 className="text-lg font-bold tracking-tight sm:text-xl">
-              Liga Macetero
-            </h1>
+            <h1 className="min-w-0 text-lg font-bold tracking-tight sm:text-xl">Liga</h1>
           </div>
         </div>
 
@@ -210,11 +208,13 @@ export default function LigaPage() {
                     {me.score}/{me.nextRankScore} pts
                   </span>
                 </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--mx-bg)_75%,var(--mx-brown))]">
-                  <div
-                    className="h-full rounded-full bg-[var(--mx-red-soft)] transition-[width]"
-                    style={{ width: `${progressPct}%` }}
-                  />
+                <div
+                  className="h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--mx-bg)_75%,var(--mx-brown))]"
+                  style={
+                    { "--liga-fill": `${progressPct}%` } as CSSProperties
+                  }
+                >
+                  <div className="h-full w-[var(--liga-fill)] max-w-full rounded-full bg-[var(--mx-red-soft)] transition-[width]" />
                 </div>
               </div>
             ) : null}
@@ -255,11 +255,13 @@ export default function LigaPage() {
                     {mxn.format(ahorroMe.nextGuardado)}
                   </span>
                 </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--mx-bg)_75%,var(--mx-brown))]">
-                  <div
-                    className="h-full rounded-full bg-[var(--mx-green-muted)] transition-[width]"
-                    style={{ width: `${ahorroProgressPct}%` }}
-                  />
+                <div
+                  className="h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--mx-bg)_75%,var(--mx-brown))]"
+                  style={
+                    { "--liga-fill": `${ahorroProgressPct}%` } as CSSProperties
+                  }
+                >
+                  <div className="h-full w-[var(--liga-fill)] max-w-full rounded-full bg-[var(--mx-green-muted)] transition-[width]" />
                 </div>
               </div>
             ) : ahorroMe.guardado === 0 ? (
@@ -277,7 +279,7 @@ export default function LigaPage() {
         {userId && tab === "torneos" && me && (
           <div className="mt-6 rounded-2xl border border-white/10 bg-[color-mix(in_srgb,var(--mx-bg-soft)_92%,black)] p-5">
             <p className="text-xs font-medium uppercase tracking-wider text-[var(--mx-fg-muted)]">
-              Copa Macetero · Tu posición
+              Copa · Tu posición
             </p>
             <div className="mt-2 flex flex-wrap items-end gap-3">
               <span className="text-5xl font-bold leading-none text-[var(--mx-cream-warm)]">

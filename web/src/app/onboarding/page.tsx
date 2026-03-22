@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { MaceteroLogo } from "@/components/MaceteroLogo";
 
 const STORAGE_KEY = "macetero_onboarding_done";
 
@@ -56,9 +57,10 @@ export default function OnboardingPage() {
       <header className="relative z-10 flex w-full shrink-0 items-center justify-between gap-4 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8 lg:px-12">
         <Link
           href="/"
-          className="text-sm font-semibold tracking-tight text-white/85 transition hover:text-white"
+          className="block shrink-0 text-white/90 transition hover:text-white"
+          aria-label="Inicio"
         >
-          Macetero
+          <MaceteroLogo variant="full" tone="light" className="h-7 w-auto min-w-[8rem] sm:h-8 sm:min-w-[9rem]" />
         </Link>
         <Link
           href="/entrar"

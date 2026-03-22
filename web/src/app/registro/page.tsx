@@ -152,7 +152,7 @@ export default function RegistroPage() {
               <span aria-hidden>🔒</span> Tu dinero protegido
             </p>
             <p className="mt-1 text-[var(--mx-brown)]">
-              No compartas tu contraseña. Nadie de Macetero te la pedirá por
+              No compartas tu contraseña. Nadie de nuestro equipo de soporte te la pedirá por
               teléfono o correo.
             </p>
           </div>

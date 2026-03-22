@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { MaceteroLogo } from "@/components/MaceteroLogo";
 
 /** Mensaje atractivo para la pestaña Torneos (competencia por puntos / temporada). */
 export function LigaTorneoPromo() {
@@ -41,7 +42,11 @@ export function LigaTorneoPromo() {
             ⚔️
           </span>
           <div className="min-w-0 flex-1">
-            <p className="font-bold text-[var(--mx-ink)]">Copa Macetero · Temporada</p>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-bold text-[var(--mx-ink)]">
+              <span>Copa</span>
+              <MaceteroLogo variant="mark" tone="dark" className="h-6 w-auto max-w-[5rem] shrink-0" />
+              <span>· Temporada</span>
+            </p>
             <p className="mt-1 text-sm leading-snug text-[var(--mx-brown)]">
               Compite por <strong className="text-[var(--mx-ink)]">puntos de liga</strong>{" "}
               cada semana. Próximamente: premios en{" "}
@@ -75,8 +80,12 @@ export function LigaTorneoPromo() {
                   <p className="text-xs font-medium uppercase tracking-wider text-white/80">
                     Torneos
                   </p>
-                  <h2 id={titleId} className="mt-1 text-xl font-bold">
-                    Copa Macetero
+                  <h2
+                    id={titleId}
+                    className="mt-1 flex flex-wrap items-center gap-2 text-xl font-bold"
+                  >
+                    <span>Copa</span>
+                    <MaceteroLogo variant="mark" tone="light" className="h-8 w-auto max-w-[6.5rem] shrink-0" />
                   </h2>
                 </div>
                 <button

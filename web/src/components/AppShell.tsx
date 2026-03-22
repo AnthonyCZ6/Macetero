@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { MaceteroLogo } from "@/components/MaceteroLogo";
 
 const nav = [
   { href: "/", label: "Inicio" },
@@ -29,9 +30,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 lg:px-6">
             <Link
               href="/"
-              className="text-lg font-semibold tracking-tight text-white hover:text-[var(--mx-cream-warm)]"
+              className="block shrink-0 text-white transition hover:opacity-90"
+              aria-label="Inicio"
             >
-              Macetero
+              <MaceteroLogo
+                variant="full"
+                tone="light"
+                className="h-10 w-auto max-h-[2.75rem] sm:h-11 sm:max-h-[3rem]"
+                priority
+              />
             </Link>
             <nav className="flex flex-wrap items-center justify-end gap-1 sm:gap-2">
               {nav.map(({ href, label }) => {

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import { levelDisplayName, maxTandasLabel } from "@/lib/tanda-limits";
+import { MaceteroLogo } from "@/components/MaceteroLogo";
+import type { ReactNode } from "react";
 
 function initialsFromName(name: string | null | undefined): string {
   if (!name?.trim()) return "?";
@@ -26,8 +28,8 @@ function MenuRow({
 }: {
   href: string;
   icon: React.ReactNode;
-  title: string;
-  subtitle: string;
+  title: ReactNode;
+  subtitle: ReactNode;
 }) {
   return (
     <Link
@@ -179,7 +181,12 @@ export default function PerfilPage() {
             <MenuRow
               href="/liga"
               icon={<span aria-hidden>🏆</span>}
-              title="Liga Macetero"
+              title={
+                <span className="inline-flex items-center gap-2">
+                  Liga
+                  <MaceteroLogo variant="mark" tone="dark" className="h-5 w-auto max-w-[4.5rem] shrink-0" />
+                </span>
+              }
               subtitle={
                 profile
                   ? `#${profile.ligaRank} en la tabla · 🔥 ${profile.streak} semanas`
@@ -216,7 +223,7 @@ export default function PerfilPage() {
               href="/"
               icon={<span aria-hidden>💻</span>}
               title="Tecnología"
-              subtitle="Cómo funciona Macetero"
+              subtitle="Cómo funciona la app y la billetera"
             />
 
             <button
@@ -258,8 +265,10 @@ export default function PerfilPage() {
   return (
     <div className="mx-auto max-w-md space-y-6 rounded-3xl bg-[color-mix(in_srgb,var(--mx-cream)_90%,white)] px-2 py-6 sm:px-0">
       <div className="rounded-3xl bg-[var(--mx-bg)] px-6 py-10 text-center text-white shadow-lg">
-        <p className="text-sm text-white/75">Macetero</p>
-        <h1 className="mt-2 text-2xl font-bold">Tu cuenta</h1>
+        <div className="flex justify-center">
+          <MaceteroLogo variant="full" tone="light" className="h-10 w-auto max-w-[min(100%,14rem)]" />
+        </div>
+        <h1 className="mt-4 text-2xl font-bold">Tu cuenta</h1>
         <p className="mx-auto mt-3 max-w-xs text-sm text-white/80">
           Entra con el <strong>correo</strong> con el que te registraste y tu{" "}
           <strong>contraseña</strong>.

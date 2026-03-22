@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Macetero — Tandas y billetera",
+  title: "Tandas y billetera",
   description: "Tandas, passkey en Stellar y rampa fiat",
 };
 
