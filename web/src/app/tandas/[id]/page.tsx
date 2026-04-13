@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { EscrowContractViewButton } from "@/components/EscrowContractViewButton";
 import { EscrowOrganizerDeploySection } from "@/components/EscrowOrganizerDeploySection";
+import { TandaPayModal } from "@/components/TandaPayModal";
 import { useBackendUser } from "@/hooks/useBackendUser";
 
 type Detail = {
@@ -21,12 +22,18 @@ type Detail = {
   montoPremio: number;
   trustlessEscrowEnabled?: boolean;
   trustlessClientReady?: boolean;
+  /** true: el pago solo registra en BD (sin Stellar); ver TANDA_PAY_VISUAL_ONLY */
+  payVisualOnly?: boolean;
   participants: Array<{
     userId: string;
     name: string;
     turno: number;
     estadoTurno: string;
-    pagoActual: { estado: string; montoTotal: number } | null;
+    pagoActual: {
+      estado: string;
+      montoTotal: number;
+      cargoRetraso?: number;
+    } | null;
   }>;
   periodos: Array<{
     periodo: number;
@@ -49,6 +56,10 @@ function stellarExpertContractUrl(contractId: string): string {
   return `${base}/${encodeURIComponent(contractId)}`;
 }
 
+function isSimulatedEscrowContract(contractId: string): boolean {
+  return contractId.startsWith("SIM_");
+}
+
 export default function TandaDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -57,6 +68,8 @@ export default function TandaDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [payMsg, setPayMsg] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [payModalOpen, setPayModalOpen] = useState(false);
+  const [payLoading, setPayLoading] = useState(false);
 
   const refreshTanda = useCallback(async () => {
     const refresh = await fetch(`/api/tandas/${id}`).then((r) => r.json());
@@ -78,21 +91,33 @@ export default function TandaDetailPage() {
     };
   }, [id]);
 
-  async function pagar() {
+  async function confirmarPago() {
     if (!userId) return;
     setPayMsg(null);
-    const res = await fetch(`/api/tandas/${id}/pay`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
-    });
-    const j = await res.json();
-    if (!res.ok) {
-      setPayMsg(j.error || "Error");
-      return;
+    setPayLoading(true);
+    try {
+      const res = await fetch(`/api/tandas/${id}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setPayMsg(j.error || "Error");
+        return;
+      }
+      setPayModalOpen(false);
+      if (j.mode === "visual_demo" || !j.txHash) {
+        setPayMsg(
+          `Aportación registrada: $${typeof j.montoPagado === "number" ? j.montoPagado.toFixed(2) : ""} (solo en la app).`
+        );
+      } else {
+        setPayMsg(`Pago registrado. Tx: ${String(j.txHash).slice(0, 16)}…`);
+      }
+      await refreshTanda();
+    } finally {
+      setPayLoading(false);
     }
-    setPayMsg(`Pago registrado. Tx: ${j.txHash?.slice(0, 16)}…`);
-    await refreshTanda();
   }
 
   if (err || !data) {
@@ -136,6 +161,12 @@ export default function TandaDetailPage() {
   const otrosEscrows = escrowDestacado
     ? escrows.filter((e) => e.contractId !== escrowDestacado.contractId)
     : [];
+  const otrosEscrowsTecnicos = otrosEscrows.filter(
+    (e) => !isSimulatedEscrowContract(e.contractId)
+  );
+  const todosEscrowsSimulados =
+    escrows.length > 0 &&
+    escrows.every((e) => isSimulatedEscrowContract(e.contractId));
 
   async function copyContract(id: string) {
     try {
@@ -188,19 +219,23 @@ export default function TandaDetailPage() {
         </section>
       )}
 
-      {escrows.length > 0 && (
+      {escrows.length > 0 && !todosEscrowsSimulados && (
         <section
           className="rounded-2xl border border-[color-mix(in_srgb,var(--mx-green)_28%,transparent)] bg-[color-mix(in_srgb,var(--mx-green)_8%,white)] p-4 shadow-sm"
           aria-label="Contratos escrow en cadena"
         >
-          <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--mx-ink)]">
-            Escrow Trustless (contrato en Stellar)
-          </h2>
-          <p className="mt-1 text-xs text-[var(--mx-fg-muted)]">
-            Cada periodo puede tener un contrato donde se acumulan las aportaciones
-            antes del desembolso. Puedes verificarlo en el explorador.
-          </p>
-          {escrowDestacado && (
+          {escrowDestacado && !isSimulatedEscrowContract(escrowDestacado.contractId) ? (
+            <>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--mx-ink)]">
+                Escrow Trustless (contrato en Stellar)
+              </h2>
+              <p className="mt-1 text-xs text-[var(--mx-fg-muted)]">
+                Cada periodo puede tener un contrato donde se acumulan las aportaciones
+                antes del desembolso. Puedes verificarlo en el explorador.
+              </p>
+            </>
+          ) : null}
+          {escrowDestacado && !isSimulatedEscrowContract(escrowDestacado.contractId) && (
             <div className="mt-3 rounded-xl border border-[var(--mx-green)]/35 bg-white/90 px-3 py-2.5">
               <p className="text-[11px] font-semibold text-[var(--mx-fg-muted)]">
                 {escrowDestacado.periodo === data.periodoActual
@@ -249,13 +284,13 @@ export default function TandaDetailPage() {
               </p>
             </div>
           )}
-          {otrosEscrows.length > 0 && (
+          {otrosEscrowsTecnicos.length > 0 && (
             <details className="mt-3">
               <summary className="cursor-pointer text-xs font-medium text-[var(--mx-green)]">
-                Otros contratos ({otrosEscrows.length})
+                Otros contratos ({otrosEscrowsTecnicos.length})
               </summary>
               <ul className="mt-2 space-y-2 text-xs">
-                {otrosEscrows.map((e) => (
+                {otrosEscrowsTecnicos.map((e) => (
                     <li
                       key={`${e.periodo}-${e.contractId}`}
                       className="rounded-lg border border-[var(--mx-cream-warm)] bg-white/80 px-2 py-2"
@@ -272,15 +307,24 @@ export default function TandaDetailPage() {
                         >
                           Copiar
                         </button>
-                        <a
-                          href={stellarExpertContractUrl(e.contractId)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[var(--mx-green)] underline-offset-2 hover:underline"
-                        >
-                          Explorador
-                        </a>
-                        {userId && esMiembro && data.trustlessEscrowEnabled && (
+                        {!isSimulatedEscrowContract(e.contractId) ? (
+                          <a
+                            href={stellarExpertContractUrl(e.contractId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[var(--mx-green)] underline-offset-2 hover:underline"
+                          >
+                            Explorador
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-[var(--mx-fg-muted)]">
+                            (simulado)
+                          </span>
+                        )}
+                        {userId &&
+                          esMiembro &&
+                          data.trustlessEscrowEnabled &&
+                          !isSimulatedEscrowContract(e.contractId) && (
                           <EscrowContractViewButton
                             tandaId={id}
                             userId={userId}
@@ -308,14 +352,26 @@ export default function TandaDetailPage() {
           con el mismo correo con el que te uniste a la tanda.
         </p>
       )}
-      {puedoPagar && (
-        <button
-          type="button"
-          onClick={() => pagar()}
-          className="rounded-xl bg-[var(--mx-green)] px-4 py-3 font-semibold text-white hover:bg-[var(--mx-green-hover)]"
-        >
-          Pagar aportación del periodo {data.periodoActual}
-        </button>
+      {puedoPagar && miParticipacion?.pagoActual && (
+        <>
+          <button
+            type="button"
+            onClick={() => setPayModalOpen(true)}
+            className="rounded-xl bg-[var(--mx-green)] px-4 py-3 font-semibold text-white hover:bg-[var(--mx-green-hover)]"
+          >
+            Pagar aportación del periodo {data.periodoActual}
+          </button>
+          <TandaPayModal
+            open={payModalOpen}
+            periodo={data.periodoActual}
+            montoTotal={miParticipacion.pagoActual.montoTotal}
+            cargoRetraso={miParticipacion.pagoActual.cargoRetraso ?? 0}
+            visualOnly={data.payVisualOnly === true}
+            loading={payLoading}
+            onClose={() => !payLoading && setPayModalOpen(false)}
+            onConfirm={() => void confirmarPago()}
+          />
+        </>
       )}
       {payMsg && <p className="text-sm text-[var(--mx-brown)]">{payMsg}</p>}
 

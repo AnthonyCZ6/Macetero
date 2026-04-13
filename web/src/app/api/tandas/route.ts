@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { generateInviteCode, calcEndDate } from "@/lib/tanda";
 import { maxTandasForLevel, maxTandasExceededMessage } from "@/lib/tanda-limits";
+import { simulateEscrowOnCreate } from "@/lib/tanda-simulate-escrow";
 
 export async function GET(req: NextRequest) {
   try {
@@ -177,6 +178,21 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    let simulatedEscrow = false;
+    if (simulateEscrowOnCreate()) {
+      const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      await prisma.tandaEscrow.create({
+        data: {
+          tanda_id: tanda.id,
+          periodo: 1,
+          contract_id: `SIM_${tanda.id.replace(/-/g, "").slice(0, 12)}_${suffix}`,
+          engagement_id: `sim-create-${tanda.id.slice(0, 8)}-${suffix}`,
+          estado: "deployed",
+        },
+      });
+      simulatedEscrow = true;
+    }
+
     return NextResponse.json({
       tandaId: tanda.id,
       codigoInvitacion: codigo,
@@ -184,6 +200,7 @@ export async function POST(req: NextRequest) {
       montoPremio,
       fechaInicio: startDate,
       fechaFin: fechaFin,
+      simulatedEscrow,
     });
   } catch (e) {
     console.error("Create tanda error:", e);

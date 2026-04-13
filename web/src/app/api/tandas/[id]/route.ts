@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { trustlessWorkConfigured } from "@/lib/tanda-escrow";
+import { isTandaPayVisualOnly } from "@/lib/tanda-pay-visual";
 
 export async function GET(
   _req: NextRequest,
@@ -107,6 +108,7 @@ export async function GET(
       escrows,
       trustlessEscrowEnabled,
       trustlessClientReady,
+      payVisualOnly: isTandaPayVisualOnly(),
     });
   } catch (e) {
     console.error("Get tanda error:", e);

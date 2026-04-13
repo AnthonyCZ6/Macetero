@@ -3,12 +3,87 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/crypto";
 import { submitTransaction } from "@/lib/stellar";
 import { POINTS_ON_TIME } from "@/lib/tanda";
+import { isTandaPayVisualOnly } from "@/lib/tanda-pay-visual";
 import {
   payLateFeeNativeXlm,
   releaseEscrowForPeriod,
   submitEscrowContribution,
   trustlessWorkConfigured,
 } from "@/lib/tanda-escrow";
+
+type TandaSlice = {
+  periodo_actual: number;
+  num_participantes: number;
+  organizador_id: string;
+};
+
+type PagoSlice = { id: string; dias_retraso: number };
+
+async function aplicarPagoRegistradoYAvanzarPeriodo(params: {
+  pago: PagoSlice;
+  userId: string;
+  tandaId: string;
+  tanda: TandaSlice;
+  turnoRecipienteId: string;
+  stellarTxHash: string | null;
+}) {
+  const { pago, userId, tandaId, tanda, turnoRecipienteId, stellarTxHash } =
+    params;
+
+  await prisma.pago.update({
+    where: { id: pago.id },
+    data: {
+      estado: "pagado",
+      fecha_pago: new Date(),
+      stellar_tx_hash: stellarTxHash,
+    },
+  });
+
+  if (pago.dias_retraso === 0) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        score: { increment: POINTS_ON_TIME },
+        streak: { increment: 1 },
+      },
+    });
+  }
+
+  const unpaidCount = await prisma.pago.count({
+    where: {
+      tanda_id: tandaId,
+      periodo: tanda.periodo_actual,
+      estado: { not: "pagado" },
+    },
+  });
+
+  let prizeDelivered = false;
+
+  if (unpaidCount === 0) {
+    await prisma.turno.update({
+      where: { id: turnoRecipienteId },
+      data: { estado_turno: "completado", premio_entregado: true },
+    });
+
+    const isLastPeriod = tanda.periodo_actual >= tanda.num_participantes;
+
+    if (isLastPeriod) {
+      await prisma.tanda.update({
+        where: { id: tandaId },
+        data: { estado: "completada" },
+      });
+    } else {
+      await prisma.tanda.update({
+        where: { id: tandaId },
+        data: { periodo_actual: { increment: 1 } },
+      });
+    }
+
+    prizeDelivered = true;
+  }
+
+  return { unpaidCount, prizeDelivered };
+}
 
 export async function POST(
   req: NextRequest,
@@ -55,7 +130,45 @@ export async function POST(
       include: { participante: { include: { wallet: true } } },
     });
 
-    if (!turnoRecipient?.participante.wallet) {
+    if (!turnoRecipient) {
+      return NextResponse.json({ error: "Turn not found for period" }, { status: 500 });
+    }
+
+    const totalToPay = Number(pago.monto_total);
+    const basePay = Number(pago.monto_base);
+    const lateFee = Number(pago.cargo_retraso);
+
+    const tandaSlice: TandaSlice = {
+      periodo_actual: tanda.periodo_actual,
+      num_participantes: tanda.num_participantes,
+      organizador_id: tanda.organizador_id,
+    };
+
+    const pagoSlice: PagoSlice = { id: pago.id, dias_retraso: pago.dias_retraso };
+
+    /** Solo BD + modales en cliente: sin Stellar ni escrow. */
+    if (isTandaPayVisualOnly()) {
+      const { unpaidCount, prizeDelivered } = await aplicarPagoRegistradoYAvanzarPeriodo({
+        pago: pagoSlice,
+        userId,
+        tandaId,
+        tanda: tandaSlice,
+        turnoRecipienteId: turnoRecipient.id,
+        stellarTxHash: null,
+      });
+
+      return NextResponse.json({
+        success: true,
+        mode: "visual_demo",
+        txHash: null,
+        montoPagado: totalToPay,
+        cargoRetraso: lateFee,
+        prizeDelivered,
+        allPaid: unpaidCount === 0,
+      });
+    }
+
+    if (!turnoRecipient.participante.wallet) {
       return NextResponse.json({ error: "Recipient wallet not found" }, { status: 500 });
     }
 
@@ -67,10 +180,6 @@ export async function POST(
     if (!payer?.wallet) {
       return NextResponse.json({ error: "Payer wallet not found" }, { status: 400 });
     }
-
-    const totalToPay = Number(pago.monto_total);
-    const basePay = Number(pago.monto_base);
-    const lateFee = Number(pago.cargo_retraso);
 
     const unpaidBefore = await prisma.pago.count({
       where: {
@@ -168,57 +277,14 @@ export async function POST(
       primaryTxHash = result.hash;
     }
 
-    await prisma.pago.update({
-      where: { id: pago.id },
-      data: {
-        estado: "pagado",
-        fecha_pago: new Date(),
-        stellar_tx_hash: primaryTxHash,
-      },
+    const { unpaidCount, prizeDelivered } = await aplicarPagoRegistradoYAvanzarPeriodo({
+      pago: pagoSlice,
+      userId,
+      tandaId,
+      tanda: tandaSlice,
+      turnoRecipienteId: turnoRecipient.id,
+      stellarTxHash: primaryTxHash,
     });
-
-    if (pago.dias_retraso === 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          score: { increment: POINTS_ON_TIME },
-          streak: { increment: 1 },
-        },
-      });
-    }
-
-    const unpaidCount = await prisma.pago.count({
-      where: {
-        tanda_id: tandaId,
-        periodo: tanda.periodo_actual,
-        estado: { not: "pagado" },
-      },
-    });
-
-    let prizeDelivered = false;
-
-    if (unpaidCount === 0) {
-      await prisma.turno.update({
-        where: { id: turnoRecipient.id },
-        data: { estado_turno: "completado", premio_entregado: true },
-      });
-
-      const isLastPeriod = tanda.periodo_actual >= tanda.num_participantes;
-
-      if (isLastPeriod) {
-        await prisma.tanda.update({
-          where: { id: tandaId },
-          data: { estado: "completada" },
-        });
-      } else {
-        await prisma.tanda.update({
-          where: { id: tandaId },
-          data: { periodo_actual: { increment: 1 } },
-        });
-      }
-
-      prizeDelivered = true;
-    }
 
     return NextResponse.json({
       success: true,

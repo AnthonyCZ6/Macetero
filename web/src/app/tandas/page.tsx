@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AparceriaCreateContractModals } from "@/components/AparceriaCreateContractModals";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import type { TandaRow } from "@/components/TandaPreviewList";
 import { levelDisplayName, maxTandasLabel } from "@/lib/tanda-limits";
@@ -127,7 +128,7 @@ function TandaCard({ t }: { t: TandaRow }) {
 
 export default function TandasPage() {
   const router = useRouter();
-  const { userId, hydrated } = useBackendUser();
+  const { userId, hydrated, displayName, phone } = useBackendUser();
   const [nombre, setNombre] = useState("");
   const [monto, setMonto] = useState("200");
   const [freq, setFreq] = useState("semanal");
@@ -146,6 +147,10 @@ export default function TandasPage() {
   const [lista, setLista] = useState<TandaRow[]>([]);
   const [listaLoading, setListaLoading] = useState(false);
   const [showAcciones, setShowAcciones] = useState(false);
+  const [aparceriaStep, setAparceriaStep] = useState<null | "sign" | "signed">(
+    null
+  );
+  const [creandoTanda, setCreandoTanda] = useState(false);
 
   function refreshLista() {
     if (!userId) {
@@ -187,7 +192,7 @@ export default function TandasPage() {
     refreshLista();
   }, [userId]);
 
-  async function crear(e: React.FormEvent) {
+  function crear(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
     setErr(null);
@@ -195,38 +200,59 @@ export default function TandasPage() {
       setErr("Inicia sesión o crea tu cuenta en Perfil.");
       return;
     }
-    const res = await fetch("/api/tandas", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId,
-        nombre,
-        monto_aportacion: parseFloat(monto),
-        frecuencia: freq,
-        num_participantes: parseInt(num, 10),
-        fecha_inicio: fecha,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setErr(data.error || "Error al crear");
-      return;
-    }
-    setMsg(
-      `Tanda creada. Código: ${data.codigoInvitacion}. Turno asignado: ${data.turnoAsignado}. Abriendo detalle…`
-    );
-    refreshLista();
-    if (data.tandaId) {
-      router.push(`/tandas/${data.tandaId}`);
-    }
-    fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) return;
-        applyCupoFromProfilePayload(d, setCupo);
-      })
-      .catch(() => {});
+    setAparceriaStep("sign");
   }
+
+  async function ejecutarCrearTandaTrasFirma() {
+    if (!userId || creandoTanda) return;
+    setCreandoTanda(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/tandas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          nombre,
+          monto_aportacion: parseFloat(monto),
+          frecuencia: freq,
+          num_participantes: parseInt(num, 10),
+          fecha_inicio: fecha,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error || "Error al crear");
+        setAparceriaStep(null);
+        return;
+      }
+      setAparceriaStep(null);
+      setMsg(
+        `Tanda creada. Código: ${data.codigoInvitacion}. Turno asignado: ${data.turnoAsignado}.${
+          data.simulatedEscrow
+            ? " Contrato escrow simulado (demo, no en red)."
+            : ""
+        }`
+      );
+      refreshLista();
+      if (data.tandaId) {
+        router.push(`/tandas/${data.tandaId}`);
+      }
+      fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) return;
+          applyCupoFromProfilePayload(d, setCupo);
+        })
+        .catch(() => {});
+    } finally {
+      setCreandoTanda(false);
+    }
+  }
+
+  const organizerLabel =
+    displayName?.trim() || phone?.trim() || "Organizador";
 
   async function unir(e: React.FormEvent) {
     e.preventDefault();
@@ -522,6 +548,16 @@ export default function TandasPage() {
             {msg}
           </p>
         )}
+
+        <AparceriaCreateContractModals
+          step={aparceriaStep}
+          tandaNombre={nombre}
+          organizerDisplayName={organizerLabel}
+          submitting={creandoTanda}
+          onClose={() => !creandoTanda && setAparceriaStep(null)}
+          onConfirmSign={() => setAparceriaStep("signed")}
+          onGoToTanda={() => void ejecutarCrearTandaTrasFirma()}
+        />
       </div>
     </div>
   );
