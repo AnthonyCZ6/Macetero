@@ -2,9 +2,10 @@ import { Keypair } from "@stellar/stellar-sdk";
 import { signTransaction, submitTransaction } from "@/lib/stellar";
 
 /**
- * Flujo con hooks del SDK (`@trustless-work/escrow`): ver `useInitializeEscrowDeploy`
- * y `TrustlessEscrowProvider` — deployEscrow → /api/trustless/sign-xdr → sendTransaction.
- * Este módulo sigue siendo la base para el servidor (tanda-escrow, /api/trustless/deploy).
+ * Flujo desde el cliente: ver `useInitializeEscrowDeploy` —
+ * /api/trustless/deploy-unsigned → sign-xdr-user/sign-xdr → send-signed-xdr.
+ * Este módulo es la base del servidor (tanda-escrow, /api/trustless/*) y el
+ * único lugar donde se usa TRUSTLESS_WORK_API_KEY (nunca en el navegador).
  */
 const TYPE = "single-release" as const;
 
@@ -239,6 +240,22 @@ export async function deploySingleRelease(
   return twFetch<{ unsignedTransaction: string }>("/deployer/single-release", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Deploy genérico que devuelve solo el `unsignedTransaction` (sin firmar).
+ * Respeta el `signer` del payload (p. ej. la cuenta G del usuario) — el XDR
+ * se firma después vía /api/trustless/sign-xdr-user o sign-xdr.
+ * Usado por /api/trustless/deploy-unsigned para no exponer la API key al navegador.
+ */
+export async function deployEscrowUnsigned(
+  payload: Record<string, unknown>,
+  type: "single-release" | "multi-release"
+): Promise<{ unsignedTransaction: string }> {
+  return twFetch<{ unsignedTransaction: string }>(`/deployer/${type}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
