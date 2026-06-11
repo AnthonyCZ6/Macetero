@@ -1,14 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { cronUnauthorizedResponse, isCronAuthorized } from "@/lib/cron-auth";
 
 /**
  * Cron: send payment reminders.
  * - 3 days before: gentle reminder
  * - 1 day before: urgent reminder
  * - Same day: final reminder
- * Called daily at 8:00 AM. In production, protect with a secret header.
+ * Called daily at 8:00 AM. Requires `Authorization: Bearer <CRON_SECRET>`.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
+  if (!isCronAuthorized(req)) {
+    return cronUnauthorizedResponse();
+  }
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
