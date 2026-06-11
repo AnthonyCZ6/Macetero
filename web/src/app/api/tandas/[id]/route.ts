@@ -85,8 +85,10 @@ export async function GET(
     }));
 
     const trustlessEscrowEnabled = trustlessWorkConfigured();
+    // El deploy del cliente pasa por /api/trustless/deploy-unsigned,
+    // así que basta con que la key exista en el servidor.
     const trustlessClientReady = Boolean(
-      process.env.NEXT_PUBLIC_TRUSTLESS_WORK_API_KEY?.trim()
+      process.env["TRUSTLESS_WORK_API_KEY"]?.trim()
     );
 
     return NextResponse.json({
