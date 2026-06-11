@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { cronUnauthorizedResponse, isCronAuthorized } from "@/lib/cron-auth";
 import {
   LATE_FEE_PER_WEEK,
   POINTS_LATE_PENALTY,
@@ -13,9 +14,12 @@ import {
 /**
  * Cron: process overdue payments — gracia, fees, level downgrade,
  * turn postponement, and expulsion.
- * Called daily. In production, protect with a secret header.
+ * Called daily. Requires `Authorization: Bearer <CRON_SECRET>`.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
+  if (!isCronAuthorized(req)) {
+    return cronUnauthorizedResponse();
+  }
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
