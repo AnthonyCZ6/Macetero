@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/components/WalletProvider";
 import { AppShell } from "@/components/AppShell";
-import { TrustlessEscrowProvider } from "@/components/TrustlessEscrowProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,9 +31,7 @@ export default function RootLayout({
     >
       <body className="flex min-h-dvh flex-col bg-[var(--mx-cream)] font-sans text-[var(--mx-ink)] antialiased">
         <WalletProvider>
-          <TrustlessEscrowProvider>
-            <AppShell>{children}</AppShell>
-          </TrustlessEscrowProvider>
+          <AppShell>{children}</AppShell>
         </WalletProvider>
       </body>
     </html>

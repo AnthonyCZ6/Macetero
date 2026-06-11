@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { useInitializeEscrow } from "@trustless-work/escrow/hooks";
 import type {
   EscrowType,
   InitializeMultiReleaseEscrowPayload,
@@ -27,15 +26,40 @@ type EscrowConfigResponse = {
 /**
  * Flujo Trustless Work (documentación):
  * 1) Preparar payload (signer, engagementId, title, description, roles, amount, platformFee, milestones, trustline)
- * 2) Ejecutar endpoint → deployEscrow
+ * 2) POST /api/trustless/deploy-unsigned (la API key vive solo en el servidor)
  * 3) Obtener unsigned TX
  * 4) Modal de confirmación → firmar (cuenta del usuario vía /api/trustless/sign-xdr-user)
  * 5) POST /api/trustless/send-signed-xdr (hash fiable para indexador + finalize)
  *
- * Requiere `<TrustlessEscrowProvider>` y `NEXT_PUBLIC_TRUSTLESS_WORK_API_KEY`.
  * El `signer` del payload es la cuenta G del usuario (misma que en registro), no el operador del servidor.
  */
 export type SendSignedTxResult = { hash: string; status: string };
+
+/**
+ * Deploy vía proxy del servidor (/api/trustless/deploy-unsigned).
+ * Sustituye al hook `useInitializeEscrow` del SDK para no exponer
+ * la API key de Trustless Work en el bundle del navegador.
+ */
+async function deployEscrowViaServer(
+  payload:
+    | InitializeSingleReleaseEscrowPayload
+    | InitializeMultiReleaseEscrowPayload,
+  type: EscrowType
+): Promise<{ unsignedTransaction?: string }> {
+  const res = await fetch("/api/trustless/deploy-unsigned", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload, type }),
+  });
+  const body = (await res.json()) as {
+    error?: string;
+    unsignedTransaction?: string;
+  };
+  if (!res.ok || !body.unsignedTransaction) {
+    throw new Error(body.error ?? "Fallo el deploy del escrow");
+  }
+  return { unsignedTransaction: body.unsignedTransaction };
+}
 
 /** Envío del XDR firmado por el servidor (hash fiable para indexador). */
 export async function relaySendSignedXdr(
@@ -63,7 +87,7 @@ export async function relaySendSignedXdr(
 }
 
 export function useInitializeEscrowDeploy() {
-  const { deployEscrow } = useInitializeEscrow();
+  const deployEscrow = deployEscrowViaServer;
 
   const [signModalOpen, setSignModalOpen] = useState(false);
   const signResolverRef = useRef<((ok: boolean) => void) | null>(null);
