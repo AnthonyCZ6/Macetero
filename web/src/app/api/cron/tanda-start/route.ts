@@ -1,11 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { cronUnauthorizedResponse, isCronAuthorized } from "@/lib/cron-auth";
 
 /**
  * Cron: auto-start tandas whose fecha_inicio is today.
- * Called daily. In production, protect with a secret header.
+ * Called daily. Requires `Authorization: Bearer <CRON_SECRET>`.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
+  if (!isCronAuthorized(req)) {
+    return cronUnauthorizedResponse();
+  }
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
