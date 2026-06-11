@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { hashPassword } from "@/lib/password";
 import { generateKeypair } from "@/lib/stellar";
 import { encrypt } from "@/lib/crypto";
 import { registerWallet } from "@/lib/etherfuse";
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const pinHash = createHash("sha256").update(password).digest("hex");
+    const pinHash = hashPassword(password);
     const { publicKey, secret } = generateKeypair();
     const encryptedSecret = encrypt(secret);
 
