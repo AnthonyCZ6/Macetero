@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { isPlaceholderPhone } from "@/lib/phone-placeholder";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/password";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -40,12 +40,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const pinHash = createHash("sha256").update(password).digest("hex");
-    if (user.pin_hash !== pinHash) {
+    if (!verifyPassword(password, user.pin_hash)) {
       return NextResponse.json(
         { error: "Contraseña incorrecta" },
         { status: 401 }
       );
+    }
+
+    // Migra hashes legados (SHA-256 sin salt) a scrypt al iniciar sesión
+    if (needsRehash(user.pin_hash)) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { pin_hash: hashPassword(password) },
+      });
     }
 
     return NextResponse.json({
