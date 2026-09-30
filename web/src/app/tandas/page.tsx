@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AparceriaCreateContractModals } from "@/components/AparceriaCreateContractModals";
+import { useApiGet } from "@/hooks/useApiGet";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import type { TandaRow } from "@/components/TandaPreviewList";
 import { levelDisplayName, maxTandasLabel } from "@/lib/tanda-limits";
@@ -20,25 +21,18 @@ function freqSuffix(f: string): string {
   return "semana";
 }
 
-function applyCupoFromProfilePayload(
-  d: {
-    level?: string;
-    activeTandasCount?: number;
-    maxSimultaneousTandas?: number | null;
-  },
-  setCupo: React.Dispatch<
-    React.SetStateAction<{
-      level: string;
-      active: number;
-      max: number | null;
-    } | null>
-  >
-) {
-  setCupo({
+type ProfilePayload = {
+  level?: string;
+  activeTandasCount?: number;
+  maxSimultaneousTandas?: number | null;
+};
+
+function cupoFromProfilePayload(d: ProfilePayload) {
+  return {
     level: d.level ?? "BASICO",
     active: d.activeTandasCount ?? 0,
     max: d.maxSimultaneousTandas ?? null,
-  });
+  };
 }
 
 function TandaCard({ t }: { t: TandaRow }) {
@@ -139,58 +133,28 @@ export default function TandasPage() {
   const [codigo, setCodigo] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [cupo, setCupo] = useState<{
-    level: string;
-    active: number;
-    max: number | null;
-  } | null>(null);
-  const [lista, setLista] = useState<TandaRow[]>([]);
-  const [listaLoading, setListaLoading] = useState(false);
+  const perfil = useApiGet<ProfilePayload>(
+    userId ? "/api/user/profile" : null,
+    { key: userId }
+  );
+  const cupo = perfil.data ? cupoFromProfilePayload(perfil.data) : null;
+  const listaReq = useApiGet<{ tandas?: TandaRow[] }>(
+    userId ? "/api/tandas" : null,
+    { key: userId }
+  );
+  const lista = listaReq.data?.tandas ?? [];
+  const listaLoading = listaReq.loading;
   const [showAcciones, setShowAcciones] = useState(false);
   const [aparceriaStep, setAparceriaStep] = useState<null | "sign" | "signed">(
     null
   );
   const [creandoTanda, setCreandoTanda] = useState(false);
 
-  function refreshLista() {
-    if (!userId) {
-      setLista([]);
-      return;
-    }
-    setListaLoading(true);
-    fetch("/api/tandas")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) return;
-        setLista(data.tandas ?? []);
-      })
-      .catch(() => setLista([]))
-      .finally(() => setListaLoading(false));
+  /** Tras crear o unirse: lista de tandas y cupo del perfil. */
+  function refrescar() {
+    listaReq.reload();
+    perfil.reload();
   }
-
-  useEffect(() => {
-    if (!userId) {
-      setCupo(null);
-      return;
-    }
-    let cancelled = false;
-    fetch("/api/user/profile")
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled || d.error) return;
-        applyCupoFromProfilePayload(d, setCupo);
-      })
-      .catch(() => {
-        if (!cancelled) setCupo(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-
-  useEffect(() => {
-    refreshLista();
-  }, [userId]);
 
   function crear(e: React.FormEvent) {
     e.preventDefault();
@@ -234,17 +198,10 @@ export default function TandasPage() {
             : ""
         }`
       );
-      refreshLista();
+      refrescar();
       if (data.tandaId) {
         router.push(`/tandas/${data.tandaId}`);
       }
-      fetch("/api/user/profile")
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.error) return;
-          applyCupoFromProfilePayload(d, setCupo);
-        })
-        .catch(() => {});
     } finally {
       setCreandoTanda(false);
     }
@@ -274,14 +231,7 @@ export default function TandasPage() {
     setMsg(
       `Te uniste. Turno ${data.turnoAsignado} de ${data.totalParticipantes}. Estado: ${data.estado}.`
     );
-    refreshLista();
-    fetch("/api/user/profile")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) return;
-        applyCupoFromProfilePayload(d, setCupo);
-      })
-      .catch(() => {});
+    refrescar();
   }
 
   if (!hydrated) {

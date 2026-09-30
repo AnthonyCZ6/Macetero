@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import Link from "next/link";
+import { useApiGet } from "@/hooks/useApiGet";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import { LigaPointsInfo } from "@/components/LigaPointsInfo";
 import { LigaPremioLiderAhorro } from "@/components/liga/LigaPremioLiderAhorro";
@@ -65,55 +66,24 @@ const mxn = new Intl.NumberFormat("es-MX", {
 export default function LigaPage() {
   const { userId, displayName, hydrated } = useBackendUser();
   const [tab, setTab] = useState<TabId>("puntualidad");
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [me, setMe] = useState<MeInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  // `me` sale de la sesión; userId en la clave recarga al iniciar/cerrar sesión.
+  const puntualidad = useApiGet<{ entries?: Entry[]; me?: MeInfo | null }>(
+    hydrated ? "/api/liga/leaderboard" : null,
+    { key: userId, errorMessage: "No se pudo cargar el ranking." }
+  );
+  const entries = puntualidad.data?.entries ?? [];
+  const me = puntualidad.data?.me ?? null;
+  const loading = puntualidad.loading;
+  const err = puntualidad.error;
 
-  const [ahorroEntries, setAhorroEntries] = useState<AhorroEntry[]>([]);
-  const [ahorroMe, setAhorroMe] = useState<AhorroMe | null>(null);
-  const [ahorroLoading, setAhorroLoading] = useState(false);
-  const [ahorroErr, setAhorroErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    setErr(null);
-    // `me` sale de la sesión; userId solo dispara la recarga al iniciar/cerrar sesión.
-    fetch("/api/liga/leaderboard")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) {
-          setErr(d.error);
-          return;
-        }
-        setEntries(d.entries ?? []);
-        setMe(d.me ?? null);
-      })
-      .catch(() => setErr("No se pudo cargar el ranking."))
-      .finally(() => setLoading(false));
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setAhorroEntries([]);
-      setAhorroMe(null);
-      return;
-    }
-    setAhorroLoading(true);
-    setAhorroErr(null);
-    fetch("/api/liga/ahorro")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) {
-          setAhorroErr(d.error);
-          return;
-        }
-        setAhorroEntries(d.entries ?? []);
-        setAhorroMe(d.me ?? null);
-      })
-      .catch(() => setAhorroErr("No se pudo cargar el ranking de ahorro."))
-      .finally(() => setAhorroLoading(false));
-  }, [userId]);
+  const ahorro = useApiGet<{ entries?: AhorroEntry[]; me?: AhorroMe | null }>(
+    userId ? "/api/liga/ahorro" : null,
+    { key: userId, errorMessage: "No se pudo cargar el ranking de ahorro." }
+  );
+  const ahorroEntries = ahorro.data?.entries ?? [];
+  const ahorroMe = ahorro.data?.me ?? null;
+  const ahorroLoading = ahorro.loading;
+  const ahorroErr = ahorro.error;
 
   const progressPct =
     me?.nextRankScore != null && me.nextRankScore > 0

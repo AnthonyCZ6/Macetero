@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useApiGet } from "@/hooks/useApiGet";
 import { useWallet } from "@/hooks/useWallet";
 import { XlmMxnReference } from "@/components/XlmMxnReference";
 
@@ -49,44 +49,20 @@ export function MiAhorroSection({
   showXlmReference?: boolean;
 }) {
   const { balance } = useWallet();
-  const [guardado, setGuardado] = useState<number | null>(null);
-  const [items, setItems] = useState<MovimientoItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      fetch("/api/liga/ahorro").then((r) =>
-        r.json()
-      ),
-      fetch("/api/user/movimientos").then(
-        (r) => r.json()
-      ),
-    ])
-      .then(([ah, mov]) => {
-        if (cancelled) return;
-        const g = ah?.me?.guardado;
-        setGuardado(typeof g === "number" ? g : 0);
-        if (!mov?.error && Array.isArray(mov?.items)) {
-          setItems(mov.items);
-        } else {
-          setItems([]);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setGuardado(0);
-          setItems([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+  const ahorro = useApiGet<{ me?: { guardado?: number } | null }>(
+    "/api/liga/ahorro",
+    { key: userId }
+  );
+  const movimientos = useApiGet<{ items?: MovimientoItem[] }>(
+    "/api/user/movimientos",
+    { key: userId }
+  );
+  const loading = ahorro.loading || movimientos.loading;
+  const g = ahorro.data?.me?.guardado;
+  const guardado = typeof g === "number" ? g : 0;
+  const items = Array.isArray(movimientos.data?.items)
+    ? movimientos.data.items
+    : [];
 
   return (
     <div className="space-y-5">
@@ -100,7 +76,7 @@ export function MiAhorroSection({
           <p className="relative mt-2 h-10 w-40 animate-pulse rounded-lg bg-white/10" />
         ) : (
           <p className="relative mt-1 text-3xl font-bold tabular-nums tracking-tight text-[var(--mx-green)] sm:text-4xl">
-            {mxn.format(guardado ?? 0)}
+            {mxn.format(guardado)}
           </p>
         )}
         <p className="relative mt-1 text-xs text-white/55">pesos mexicanos</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useApiGet } from "@/hooks/useApiGet";
 
 export type TandaRow = {
   id: string;
@@ -32,39 +32,11 @@ function isTuTurnoRecepcion(t: TandaRow): boolean {
 }
 
 export function TandaPreviewList({ userId }: { userId: string | null }) {
-  const [items, setItems] = useState<TandaRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!userId) {
-      setItems([]);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setErr(null);
-    fetch("/api/tandas")
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data.error) {
-          setErr(data.error);
-          setItems([]);
-          return;
-        }
-        setItems(data.tandas ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setErr("No se pudieron cargar las tandas.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+  const { data, loading, error: err } = useApiGet<{ tandas?: TandaRow[] }>(
+    userId ? "/api/tandas" : null,
+    { key: userId, errorMessage: "No se pudieron cargar las tandas." }
+  );
+  const items = data?.tandas ?? [];
 
   if (!userId) {
     return (

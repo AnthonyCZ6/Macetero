@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useApiGet } from "@/hooks/useApiGet";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import { levelDisplayName, maxTandasLabel } from "@/lib/tanda-limits";
 import { MaceteroLogo } from "@/components/MaceteroLogo";
@@ -57,53 +57,33 @@ export default function PerfilPage() {
     displayName,
     phone,
     email,
-    setEmail,
     clearSession,
     hydrated,
   } = useBackendUser();
 
-  const [profile, setProfile] = useState<{
-    level: string;
-    score: number;
-    streak: number;
-    activeTandas: number;
-    maxTandas: number | null;
-    ligaRank: number;
-    deudaActual: number;
-    punctualityPercent: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!userId) {
-      setProfile(null);
-      return;
-    }
-    let cancelled = false;
-    fetch("/api/user/profile")
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled || d.error) return;
-        setProfile({
-          level: d.level ?? "BASICO",
-          score: d.score ?? 0,
-          streak: d.streak ?? 0,
-          activeTandas: d.activeTandasCount ?? 0,
-          maxTandas: d.maxSimultaneousTandas ?? null,
-          ligaRank: d.ligaRank ?? 1,
-          deudaActual: d.deudaActual ?? 0,
-          punctualityPercent: d.punctualityPercent ?? 0,
-        });
-        if (d.email && typeof d.email === "string") {
-          setEmail(d.email);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setProfile(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, setEmail]);
+  // El correo lo sincroniza useBackendUser desde /api/auth/me.
+  const { data: d } = useApiGet<{
+    level?: string;
+    score?: number;
+    streak?: number;
+    activeTandasCount?: number;
+    maxSimultaneousTandas?: number | null;
+    ligaRank?: number;
+    deudaActual?: number;
+    punctualityPercent?: number;
+  }>(userId ? "/api/user/profile" : null, { key: userId });
+  const profile = d
+    ? {
+        level: d.level ?? "BASICO",
+        score: d.score ?? 0,
+        streak: d.streak ?? 0,
+        activeTandas: d.activeTandasCount ?? 0,
+        maxTandas: d.maxSimultaneousTandas ?? null,
+        ligaRank: d.ligaRank ?? 1,
+        deudaActual: d.deudaActual ?? 0,
+        punctualityPercent: d.punctualityPercent ?? 0,
+      }
+    : null;
 
   if (!hydrated) {
     return (
@@ -230,10 +210,7 @@ export default function PerfilPage() {
 
             <button
               type="button"
-              onClick={() => {
-                clearSession();
-                setProfile(null);
-              }}
+              onClick={clearSession}
               className="flex w-full items-center gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--mx-red)_25%,transparent)] bg-white px-4 py-3.5 text-left shadow-sm transition hover:bg-[color-mix(in_srgb,var(--mx-red)_6%,white)]"
             >
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--mx-red)_12%,var(--mx-cream))] text-lg">

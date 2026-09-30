@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useApiGet } from "@/hooks/useApiGet";
 import { useWallet } from "@/hooks/useWallet";
 import { useBackendUser } from "@/hooks/useBackendUser";
 import { TandaPreviewList } from "@/components/TandaPreviewList";
@@ -17,32 +17,18 @@ function greeting(): string {
 export function Dashboard() {
   const { contractId, balance, refreshBalance, disconnect } = useWallet();
   const { displayName, userId, hydrated } = useBackendUser();
-  const [profile, setProfile] = useState<{
-    streak: number;
-    score: number;
-    level: string;
-  } | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
-
-  useEffect(() => {
-    if (!userId) {
-      setProfile(null);
-      return;
-    }
-    setProfileLoading(true);
-    fetch("/api/user/profile")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) return;
-        setProfile({
-          streak: d.streak ?? 0,
-          score: d.score ?? 0,
-          level: d.level ?? "BASICO",
-        });
-      })
-      .catch(() => setProfile(null))
-      .finally(() => setProfileLoading(false));
-  }, [userId]);
+  const { data: profileData, loading: profileLoading } = useApiGet<{
+    streak?: number;
+    score?: number;
+    level?: string;
+  }>(userId ? "/api/user/profile" : null, { key: userId });
+  const profile = profileData
+    ? {
+        streak: profileData.streak ?? 0,
+        score: profileData.score ?? 0,
+        level: profileData.level ?? "BASICO",
+      }
+    : null;
 
   const short = contractId
     ? `${contractId.slice(0, 6)}…${contractId.slice(-4)}`

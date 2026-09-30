@@ -66,7 +66,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const kitRef = useRef<SmartAccountKit | null>(null);
   const busyRef = useRef(false);
   const initRef = useRef(false);
-  const [ready, setReady] = useState(false);
+  // Estado (además del ref) para que el contexto se actualice cuando el kit está listo.
+  const [kit, setKit] = useState<SmartAccountKit | null>(null);
   const [contractId, setContractId] = useState<string | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -111,7 +112,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           startAuthentication,
         },
       });
-      setReady(true);
+      setKit(kitRef.current);
 
       try {
         const result = await kitRef.current.connectWallet();
@@ -211,7 +212,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      kit: kitRef.current,
+      kit,
       contractId,
       balance,
       connected,
@@ -223,7 +224,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       refreshBalance,
     }),
     [
-      ready,
+      kit,
       contractId,
       balance,
       connected,

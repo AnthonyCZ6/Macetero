@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useApiGet } from "@/hooks/useApiGet";
 
 const mxn = new Intl.NumberFormat("es-MX", {
   style: "currency",
@@ -26,34 +26,17 @@ export function XlmMxnReference({
   balanceXlm?: string | null;
   variant?: Variant;
 }) {
-  const [mxnPerXlm, setMxnPerXlm] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetch("/api/price/xlm-mxn")
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled) return;
-        if (typeof d.mxnPerXlm === "number" && Number.isFinite(d.mxnPerXlm)) {
-          setMxnPerXlm(d.mxnPerXlm);
-        } else {
-          setError(typeof d.error === "string" ? d.error : "Sin cotización");
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setError("No se pudo cargar");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const {
+    data,
+    error: fetchError,
+    loading,
+  } = useApiGet<{ mxnPerXlm?: number }>("/api/price/xlm-mxn");
+  const mxnPerXlm =
+    typeof data?.mxnPerXlm === "number" && Number.isFinite(data.mxnPerXlm)
+      ? data.mxnPerXlm
+      : null;
+  const error =
+    fetchError ?? (data && mxnPerXlm === null ? "Sin cotización" : null);
 
   const xlmAmount = parseXlmBalance(balanceXlm);
   const approx =
