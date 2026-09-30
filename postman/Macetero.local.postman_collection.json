@@ -1,11 +1,12 @@
 {
   "info": {
     "name": "Macetero (local)",
-    "description": "Pruebas contra `npm run dev` en http://localhost:3000\n\n**Trustless deploy:** requiere en `.env` / `web/.env.local`: `TRUSTLESS_WORK_ENABLED=true`, `TRUSTLESS_WORK_API_KEY`, `TRUSTLESS_SIGNER_SECRET` (o `TRUSTLESS_WORK_OPERATOR_SECRET`) con la cuenta que firma. Los `roles.*` del JSON deben ser coherentes con esa cuenta (o la wallet Macetero por defecto).\n\n**Webhook Etherfuse:** si `ETHERFUSE_WEBHOOK_SECRET` está vacío, el servidor acepta sin firma. Si no, la colección calcula `x-signature` (HMAC-SHA256 hex del body) en el script de carpeta.\n\nImportar: File → Import → este archivo.",
+    "description": "Pruebas contra `npm run dev` en http://localhost:3000\n\n**Trustless deploy:** requiere en `.env` / `web/.env.local`: `TRUSTLESS_WORK_ENABLED=true`, `TRUSTLESS_WORK_API_KEY`, `TRUSTLESS_SIGNER_SECRET` (o `TRUSTLESS_WORK_OPERATOR_SECRET`) con la cuenta que firma, y `ADMIN_API_SECRET` (pon el mismo valor en la variable `ADMIN_API_SECRET` de esta colección). Los `roles.*` del JSON deben ser coherentes con esa cuenta (o la wallet Macetero por defecto).\n\n**Webhook Etherfuse:** en desarrollo, si `ETHERFUSE_WEBHOOK_SECRET` está vacío el servidor acepta sin firma (en producción responde 503). Si hay secreto, la colección calcula `x-signature` (HMAC-SHA256 hex del body) en el script de carpeta.\n\nEl resto de la API requiere la cookie de sesión que emite `POST /api/auth/login`.\n\nImportar: File → Import → este archivo.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "ADMIN_API_SECRET", "value": "" },
     { "key": "ETHERFUSE_WEBHOOK_SECRET", "value": "" }
   ],
   "item": [
@@ -29,7 +30,10 @@
           "name": "POST /api/trustless/deploy (single-release)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ADMIN_API_SECRET}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"engagementId\": \"postman-{{$timestamp}}\",\n  \"title\": \"Prueba Postman\",\n  \"description\": \"Escrow de prueba\",\n  \"amount\": 10,\n  \"platformFee\": 0,\n  \"roles\": {\n    \"approver\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"serviceProvider\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"platformAddress\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"releaseSigner\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"disputeResolver\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\",\n    \"receiver\": \"GAMAANR75JRJX3GH7C7KOAIQC342HQQOFDOG7BCDB7MZXVB2IJMNWSZ3\"\n  },\n  \"milestones\": [\n    { \"description\": \"Primer hito\" }\n  ]\n}\n"

@@ -6,7 +6,8 @@
  *   npx tsx server/send-etherfuse-webhook.ts server/fixtures/etherfuse-webhook/01-order-updated-completed.json
  *
  * Variables (.env o web/.env.local):
- *   ETHERFUSE_WEBHOOK_SECRET — debe coincidir con la del servidor; si está vacía, el handler no exige firma.
+ *   ETHERFUSE_WEBHOOK_SECRET — debe coincidir con la del servidor; si está vacía, el handler
+ *     acepta sin firma solo en desarrollo (`npm run dev`); en producción responde 503.
  *   WEBHOOK_TEST_BASE_URL — por defecto http://localhost:3000
  *
  * Nota sobre XML: este proyecto no parsea XML en el webhook; Etherfuse envía JSON.
