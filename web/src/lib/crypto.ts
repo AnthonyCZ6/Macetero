@@ -37,7 +37,13 @@ export function decrypt(payload: string): string {
   const iv = Buffer.from(ivHex, "hex");
   const tag = Buffer.from(tagHex, "hex");
   const data = Buffer.from(dataHex, "hex");
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
+  // GCM acepta tags truncados; exigir el largo completo evita debilitar la autenticación.
+  if (tag.length !== TAG_LENGTH) {
+    throw new Error("Invalid encrypted payload format");
+  }
+  const decipher = createDecipheriv(ALGORITHM, key, iv, {
+    authTagLength: TAG_LENGTH,
+  });
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
