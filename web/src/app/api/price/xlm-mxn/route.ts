@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/api-error";
 
 /**
  * GET /api/price/xlm-mxn
@@ -39,10 +40,6 @@ export async function GET() {
       source: "coingecko",
     });
   } catch (e) {
-    console.error("xlm-mxn price:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Error interno" },
-      { status: 500 }
-    );
+    return errorResponse("xlm-mxn price", e);
   }
 }

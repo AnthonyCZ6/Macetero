@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse } from "@/lib/api-error";
 import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
 import {
-  finalizeOrganizerEscrowDeploy,
+  deployOrganizerEscrow,
   trustlessWorkConfigured,
 } from "@/lib/tanda-escrow";
 
-export const maxDuration = 60;
+/** Deploy + espera del indexador de Trustless Work. */
+export const maxDuration = 120;
 
-/** POST — registra el contractId cuando el indexador tardó en ver el deploy. */
+/**
+ * POST — el organizador confirma y el servidor despliega el escrow del periodo
+ * actual firmando con su wallet. Los términos salen de la tanda (no del cliente).
+ * Respuesta `pending_index`: la TX entró pero el indexador aún no la ve;
+ * reintentar con POST /escrow-finalize `{ engagementId, txHash }`.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,25 +29,12 @@ export async function POST(
         { status: 503 }
       );
     }
-
-    const body = (await req.json()) as {
-      engagementId?: string;
-      txHash?: string;
-    };
-    const engagementId = body.engagementId?.trim();
-    if (!engagementId) {
-      return NextResponse.json(
-        { error: "engagementId es requerido" },
-        { status: 400 }
-      );
-    }
-
     const { id: tandaId } = await params;
-    const out = await finalizeOrganizerEscrowDeploy(tandaId, userId, engagementId, {
-      txHash: body.txHash?.trim(),
+    const result = await deployOrganizerEscrow(tandaId, userId);
+    return NextResponse.json(result, {
+      status: result.status === "deployed" ? 200 : 202,
     });
-    return NextResponse.json(out);
   } catch (e) {
-    return errorResponse("Escrow finalize", e);
+    return errorResponse("Escrow deploy", e);
   }
 }

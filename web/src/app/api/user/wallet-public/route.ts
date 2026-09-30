@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
 
-/** GET /api/user/wallet-public?userId= — dirección Stellar (G…) del usuario. */
+/** GET /api/user/wallet-public — dirección Stellar (G…) del usuario de la sesión. */
 export async function GET(req: NextRequest) {
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
+
   try {
-    const userId = req.nextUrl.searchParams.get("userId")?.trim();
-    if (!userId) {
-      return NextResponse.json({ error: "userId es requerido" }, { status: 400 });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { wallet: true },
-    });
-
-    if (!user?.wallet?.stellar_public_key) {
+    const wallet = await prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet?.stellar_public_key) {
       return NextResponse.json(
         { error: "Usuario sin wallet Stellar registrada" },
         { status: 404 }
@@ -22,12 +18,9 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      publicKey: user.wallet.stellar_public_key.trim(),
+      publicKey: wallet.stellar_public_key.trim(),
     });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Error" },
-      { status: 500 }
-    );
+    return errorResponse("Wallet public", e);
   }
 }

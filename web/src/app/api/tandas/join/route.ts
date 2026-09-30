@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { calcDueDate } from "@/lib/tanda";
+import { AppError, errorResponse, isUniqueViolation } from "@/lib/api-error";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
+import { bloqueoVigente } from "@/lib/tanda";
 import { maxTandasForLevel, maxTandasExceededMessage } from "@/lib/tanda-limits";
+import { activarTanda } from "@/lib/tanda-periodo";
 
 export async function POST(req: NextRequest) {
-  try {
-    const { userId, codigo } = await req.json();
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
 
-    if (!userId || !codigo) {
-      return NextResponse.json({ error: "userId and codigo are required" }, { status: 400 });
+  try {
+    const { codigo } = await req.json();
+
+    if (typeof codigo !== "string" || !codigo.trim()) {
+      throw new AppError("El código de invitación es obligatorio");
     }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -20,130 +26,79 @@ export async function POST(req: NextRequest) {
       // In sandbox we allow not_started; production would require approved
     }
 
-    if (user.blocked_tandas) {
-      return NextResponse.json(
-        { error: "Cannot join tandas while blocked" },
-        { status: 400 }
-      );
+    if (bloqueoVigente(user)) {
+      throw new AppError("No puedes unirte a tandas mientras tu cuenta esté bloqueada", 403);
     }
 
     // Check max tandas by level
     const activeTandas = await prisma.turno.count({
       where: {
         participante_id: userId,
+        estado_turno: { not: "expulsado" },
         tanda: { estado: { in: ["pendiente", "activa"] } },
       },
     });
     if (activeTandas >= maxTandasForLevel(user.level)) {
-      return NextResponse.json(
-        { error: maxTandasExceededMessage(user.level) },
-        { status: 400 }
-      );
+      throw new AppError(maxTandasExceededMessage(user.level));
     }
 
-    const tanda = await prisma.tanda.findUnique({
-      where: { codigo_invitacion: codigo },
-      include: { turnos: { orderBy: { numero_turno: "asc" } } },
-    });
-
-    if (!tanda) {
-      return NextResponse.json({ error: "Tanda not found" }, { status: 404 });
-    }
-
-    if (tanda.estado !== "pendiente") {
-      return NextResponse.json(
-        { error: "Tanda is no longer accepting participants" },
-        { status: 400 }
-      );
-    }
-
-    // Check if already in this tanda
-    const alreadyIn = tanda.turnos.some((t) => t.participante_id === userId);
-    if (alreadyIn) {
-      return NextResponse.json({ error: "Already in this tanda" }, { status: 409 });
-    }
-
-    // Check if there are slots available
-    if (tanda.turnos.length >= tanda.num_participantes) {
-      return NextResponse.json({ error: "Tanda is full" }, { status: 400 });
-    }
-
-    const nextTurnNumber = tanda.turnos.length + 1;
-    const montoPremio =
-      Number(tanda.monto_aportacion) * tanda.num_participantes;
-
-    // Assign the next turn
-    await prisma.turno.create({
-      data: {
-        tanda_id: tanda.id,
-        participante_id: userId,
-        numero_turno: nextTurnNumber,
-        monto_premio: montoPremio,
-      },
-    });
-
-    const nowFull = nextTurnNumber === tanda.num_participantes;
-
-    if (nowFull) {
-      // Auto-activate the tanda and create all Pago records
-      await prisma.tanda.update({
-        where: { id: tanda.id },
-        data: { estado: "activa", periodo_actual: 1 },
-      });
-
-      // Fetch all participants
-      const allTurnos = await prisma.turno.findMany({
-        where: { tanda_id: tanda.id },
-        orderBy: { numero_turno: "asc" },
-      });
-
-      // Set fecha_cobro on each turno
-      for (const turno of allTurnos) {
-        const fechaCobro = calcDueDate(
-          tanda.fecha_inicio,
-          tanda.frecuencia,
-          turno.numero_turno
-        );
-        await prisma.turno.update({
-          where: { id: turno.id },
-          data: { fecha_cobro: fechaCobro },
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const tanda = await tx.tanda.findUnique({
+          where: { codigo_invitacion: codigo.trim().toUpperCase() },
+          include: { turnos: true },
         });
-      }
 
-      // Create Pago records for every participant for every period
-      const pagos = [];
-      for (let periodo = 1; periodo <= tanda.num_participantes; periodo++) {
-        const dueDate = calcDueDate(tanda.fecha_inicio, tanda.frecuencia, periodo);
-        for (const turno of allTurnos) {
-          pagos.push({
-            tanda_id: tanda.id,
-            pagador_id: turno.participante_id,
-            periodo,
-            monto_base: Number(tanda.monto_aportacion),
-            monto_total: Number(tanda.monto_aportacion),
-            fecha_vencimiento: dueDate,
-            estado: "pendiente",
-          });
+        if (!tanda) {
+          throw new AppError("No existe una tanda con ese código", 404);
         }
-      }
+        if (tanda.estado !== "pendiente") {
+          throw new AppError("Esta tanda ya no acepta participantes");
+        }
+        if (tanda.turnos.some((t) => t.participante_id === userId)) {
+          throw new AppError("Ya estás en esta tanda", 409);
+        }
+        if (tanda.turnos.length >= tanda.num_participantes) {
+          throw new AppError("La tanda ya está llena");
+        }
 
-      await prisma.pago.createMany({ data: pagos });
-    }
+        const nextTurnNumber = tanda.turnos.length + 1;
 
-    return NextResponse.json({
-      tandaId: tanda.id,
-      turnoAsignado: nextTurnNumber,
-      montoPremio,
-      tandaFull: nowFull,
-      estado: nowFull ? "activa" : "pendiente",
-      participantes: nextTurnNumber,
-      totalParticipantes: tanda.num_participantes,
-    });
-  } catch (e) {
-    console.error("Join tanda error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
+        // Assign the next turn
+        await tx.turno.create({
+          data: {
+            tanda_id: tanda.id,
+            participante_id: userId,
+            numero_turno: nextTurnNumber,
+            monto_premio: Number(tanda.monto_aportacion) * tanda.num_participantes,
+          },
+        });
+
+        const nowFull = nextTurnNumber === tanda.num_participantes;
+        if (nowFull) {
+          // Auto-activate the tanda and create all Pago records
+          await activarTanda(tx, tanda.id);
+        }
+
+        return {
+          tandaId: tanda.id,
+          turnoAsignado: nextTurnNumber,
+          totalParticipantes: tanda.num_participantes,
+          estado: nowFull ? "activa" : "pendiente",
+        };
+      },
+      { timeout: 20_000 }
     );
+
+    return NextResponse.json(result);
+  } catch (e) {
+    // Dos personas tomando el mismo turno a la vez: la segunda debe reintentar.
+    if (isUniqueViolation(e)) {
+      return NextResponse.json(
+        { error: "Alguien más se unió al mismo tiempo. Intenta de nuevo." },
+        { status: 409 }
+      );
+    }
+    return errorResponse("Join tanda", e);
   }
 }

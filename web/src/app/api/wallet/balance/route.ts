@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
 import { getBalance } from "@/lib/stellar";
 
+/** GET /api/wallet/balance — saldo XLM de la wallet del usuario de la sesión. */
 export async function GET(req: NextRequest) {
-  try {
-    const userId = req.nextUrl.searchParams.get("userId");
-    if (!userId) {
-      return NextResponse.json(
-        { error: "userId query param is required" },
-        { status: 400 }
-      );
-    }
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
 
+  try {
     const wallet = await prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) {
       return NextResponse.json(
@@ -27,10 +25,6 @@ export async function GET(req: NextRequest) {
       balance,
     });
   } catch (e) {
-    console.error("Balance error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Balance", e);
   }
 }

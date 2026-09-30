@@ -1,57 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { cronUnauthorizedResponse, isCronAuthorized } from "@/lib/cron-auth";
+import { diasEntre, sumarDias } from "@/lib/fechas";
 
 /**
- * Cron: auto-start tandas whose fecha_inicio is today.
+ * Cron: tandas activas cuyo calendario arranca hoy (hora de APP_TIMEZONE).
+ * La activación en sí ocurre al llenarse la tanda; aquí solo se asegura el
+ * periodo 1 y se listan para notificar a los participantes.
  * Called daily. Requires `Authorization: Bearer <CRON_SECRET>`.
  */
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!isCronAuthorized(req)) {
     return cronUnauthorizedResponse();
   }
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Find all active tandas starting today
-    const tandas = await prisma.tanda.findMany({
+    const ahora = new Date();
+    const candidatas = await prisma.tanda.findMany({
       where: {
         estado: "activa",
         periodo_actual: { lte: 1 },
-        fecha_inicio: { gte: today, lt: tomorrow },
+        fecha_inicio: { gte: sumarDias(ahora, -2), lt: sumarDias(ahora, 2) },
       },
-      include: {
-        pagos: { where: { periodo: 1 } },
-      },
+      select: { id: true, periodo_actual: true, fecha_inicio: true },
     });
-
-    const started: string[] = [];
+    const tandas = candidatas.filter((t) => diasEntre(t.fecha_inicio, ahora) === 0);
 
     for (const tanda of tandas) {
-      // Ensure periodo_actual is 1
       if (tanda.periodo_actual === 0) {
         await prisma.tanda.update({
           where: { id: tanda.id },
           data: { periodo_actual: 1 },
         });
       }
-
-      started.push(tanda.id);
       // In production: send push notifications to all participants
     }
 
     return NextResponse.json({
-      processed: started.length,
-      tandaIds: started,
+      processed: tandas.length,
+      tandaIds: tandas.map((t) => t.id),
     });
   } catch (e) {
-    console.error("Cron tanda-start error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Cron tanda-start", e);
   }
 }
+
+// Vercel Cron invoca con GET; POST se mantiene para llamadas manuales.
+export const GET = handler;
+export const POST = handler;

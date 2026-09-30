@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { isPlaceholderPhone } from "@/lib/phone-placeholder";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
+import { PAGO_ESTADOS_ABIERTOS } from "@/lib/tanda";
 import { maxTandasForLevel } from "@/lib/tanda-limits";
 
-/** GET /api/user/profile?userId= — datos de Liga / racha para la UI. */
+/** GET /api/user/profile — datos de Liga / racha del usuario de la sesión. */
 export async function GET(req: NextRequest) {
-  try {
-    const userId = req.nextUrl.searchParams.get("userId");
-    if (!userId) {
-      return NextResponse.json({ error: "userId is required" }, { status: 400 });
-    }
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
 
+  try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -31,6 +32,7 @@ export async function GET(req: NextRequest) {
     const activeTandasCount = await prisma.turno.count({
       where: {
         participante_id: userId,
+        estado_turno: { not: "expulsado" },
         tanda: { estado: { in: ["pendiente", "activa"] } },
       },
     });
@@ -43,23 +45,26 @@ export async function GET(req: NextRequest) {
     const ligaRank = higherScore + 1;
 
     const now = new Date();
-    const deudaAgg = await prisma.pago.aggregate({
+    // Solo cuenta como deuda el periodo en curso de tandas activas: los
+    // siguientes todavía no se pueden pagar.
+    const abiertosVencidos = await prisma.pago.findMany({
       where: {
         pagador_id: userId,
-        estado: { in: ["pendiente", "en_gracia", "vencido"] },
+        estado: { in: PAGO_ESTADOS_ABIERTOS },
         fecha_vencimiento: { not: null, lt: now },
+        tanda: { estado: "activa" },
       },
-      _sum: { monto_total: true },
-    });
-    const deudaActual = Number(deudaAgg._sum.monto_total ?? 0);
-
-    const pagosVencidos = await prisma.pago.count({
-      where: {
-        pagador_id: userId,
-        estado: { in: ["pendiente", "en_gracia", "vencido"] },
-        fecha_vencimiento: { not: null, lt: now },
+      select: {
+        periodo: true,
+        monto_total: true,
+        tanda: { select: { periodo_actual: true } },
       },
     });
+    const vencidos = abiertosVencidos.filter(
+      (p) => p.periodo === p.tanda.periodo_actual
+    );
+    const deudaActual = vencidos.reduce((s, p) => s + Number(p.monto_total), 0);
+    const pagosVencidos = vencidos.length;
 
     const basePct = 55 + Math.min(user.streak, 10) * 4 + Math.min(user.score, 500) / 25;
     const punctualityPercent = Math.max(
@@ -82,10 +87,6 @@ export async function GET(req: NextRequest) {
       punctualityPercent,
     });
   } catch (e) {
-    console.error("Profile error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Profile", e);
   }
 }

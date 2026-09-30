@@ -18,8 +18,8 @@ export default function RegistroPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres.");
+    if (password.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
       return;
     }
     if (password !== password2) {
@@ -121,7 +121,7 @@ export default function RegistroPage() {
           </label>
           <label className="block">
             <span className="text-xs font-semibold uppercase tracking-wide text-[var(--mx-brown-light)]">
-              Contraseña (mín. 6 caracteres)
+              Contraseña (mín. 8 caracteres)
             </span>
             <input
               type="password"

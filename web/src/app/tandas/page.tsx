@@ -158,7 +158,7 @@ export default function TandasPage() {
       return;
     }
     setListaLoading(true);
-    fetch(`/api/tandas?userId=${encodeURIComponent(userId)}`)
+    fetch("/api/tandas")
       .then((r) => r.json())
       .then((data) => {
         if (data.error) return;
@@ -174,7 +174,7 @@ export default function TandasPage() {
       return;
     }
     let cancelled = false;
-    fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
+    fetch("/api/user/profile")
       .then((r) => r.json())
       .then((d) => {
         if (cancelled || d.error) return;
@@ -213,7 +213,6 @@ export default function TandasPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
           nombre,
           monto_aportacion: parseFloat(monto),
           frecuencia: freq,
@@ -239,7 +238,7 @@ export default function TandasPage() {
       if (data.tandaId) {
         router.push(`/tandas/${data.tandaId}`);
       }
-      fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
+      fetch("/api/user/profile")
         .then((r) => r.json())
         .then((d) => {
           if (d.error) return;
@@ -265,7 +264,7 @@ export default function TandasPage() {
     const res = await fetch("/api/tandas/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, codigo: codigo.trim() }),
+      body: JSON.stringify({ codigo: codigo.trim() }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -276,7 +275,7 @@ export default function TandasPage() {
       `Te uniste. Turno ${data.turnoAsignado} de ${data.totalParticipantes}. Estado: ${data.estado}.`
     );
     refreshLista();
-    fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
+    fetch("/api/user/profile")
       .then((r) => r.json())
       .then((d) => {
         if (d.error) return;

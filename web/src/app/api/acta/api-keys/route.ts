@@ -1,28 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { actaCreateApiKey, type ActaNetwork } from "@/lib/acta";
+import { errorResponse } from "@/lib/api-error";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
 
 /**
  * POST /api/acta/api-keys
- * Crea una API key en ACTA (testnet/mainnet) asociada a la wallet Stellar del usuario.
+ * Crea una API key en ACTA (testnet/mainnet) asociada a la wallet Stellar del usuario de la sesión.
  * La clave solo se muestra una vez; ACTA la devuelve en esta respuesta.
  *
- * Body: { userId: string, name?: string, network?: "testnet" | "mainnet" }
+ * Body: { name?: string, network?: "testnet" | "mainnet" }
  */
 export async function POST(req: NextRequest) {
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
+
   try {
     const body = await req.json();
-    const userId = typeof body.userId === "string" ? body.userId.trim() : "";
     const name =
       typeof body.name === "string" && body.name.trim().length > 0
         ? body.name.trim().slice(0, 120)
         : "Macetero";
     const network: ActaNetwork =
       body.network === "mainnet" ? "mainnet" : "testnet";
-
-    if (!userId) {
-      return NextResponse.json({ error: "userId es requerido" }, { status: 400 });
-    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -74,10 +74,6 @@ export async function POST(req: NextRequest) {
       network,
     });
   } catch (e) {
-    console.error("ACTA api-keys:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Error interno" },
-      { status: 500 }
-    );
+    return errorResponse("ACTA api-keys", e);
   }
 }

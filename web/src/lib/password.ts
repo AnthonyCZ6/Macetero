@@ -1,5 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 
+export const MIN_PASSWORD_LENGTH = 8;
+
 const SCRYPT_PREFIX = "scrypt";
 const SALT_BYTES = 16;
 const KEY_LENGTH = 64;

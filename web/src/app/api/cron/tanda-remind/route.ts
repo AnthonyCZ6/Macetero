@@ -1,113 +1,72 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { cronUnauthorizedResponse, isCronAuthorized } from "@/lib/cron-auth";
+import { diasEntre, sumarDias } from "@/lib/fechas";
+import { isPlaceholderPhone } from "@/lib/phone-placeholder";
+
+const TIPO_POR_DIAS: Record<number, string> = {
+  3: "3_days_before",
+  1: "1_day_before",
+  0: "same_day",
+};
 
 /**
- * Cron: send payment reminders.
+ * Cron: send payment reminders for the current period of active tandas.
  * - 3 days before: gentle reminder
  * - 1 day before: urgent reminder
  * - Same day: final reminder
- * Called daily at 8:00 AM. Requires `Authorization: Bearer <CRON_SECRET>`.
+ * Called daily at 8:00 AM (hora de APP_TIMEZONE). Requires `Authorization: Bearer <CRON_SECRET>`.
  */
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!isCronAuthorized(req)) {
     return cronUnauthorizedResponse();
   }
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const ahora = new Date();
 
-    const in3Days = new Date(today);
-    in3Days.setDate(in3Days.getDate() + 3);
-    const in3DaysEnd = new Date(in3Days);
-    in3DaysEnd.setDate(in3DaysEnd.getDate() + 1);
-
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowEnd = new Date(tomorrow);
-    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
-
-    const todayEnd = new Date(today);
-    todayEnd.setDate(todayEnd.getDate() + 1);
-
-    // 3 days before
-    const remind3d = await prisma.pago.findMany({
+    const pagos = await prisma.pago.findMany({
       where: {
         estado: "pendiente",
-        fecha_vencimiento: { gte: in3Days, lt: in3DaysEnd },
+        fecha_vencimiento: { gte: sumarDias(ahora, -1), lt: sumarDias(ahora, 5) },
+        tanda: { estado: "activa" },
       },
       include: {
         pagador: { select: { id: true, name: true, phone: true } },
-        tanda: { select: { nombre: true, monto_aportacion: true } },
+        tanda: { select: { nombre: true, monto_aportacion: true, periodo_actual: true } },
       },
     });
 
-    // 1 day before
-    const remind1d = await prisma.pago.findMany({
-      where: {
-        estado: "pendiente",
-        fecha_vencimiento: { gte: tomorrow, lt: tomorrowEnd },
-      },
-      include: {
-        pagador: { select: { id: true, name: true, phone: true } },
-        tanda: { select: { nombre: true, monto_aportacion: true } },
-      },
-    });
-
-    // Same day
-    const remindToday = await prisma.pago.findMany({
-      where: {
-        estado: "pendiente",
-        fecha_vencimiento: { gte: today, lt: todayEnd },
-      },
-      include: {
-        pagador: { select: { id: true, name: true, phone: true } },
-        tanda: { select: { nombre: true, monto_aportacion: true } },
-      },
-    });
+    const notifications = pagos
+      .filter((p) => p.periodo === p.tanda.periodo_actual)
+      .map((p) => ({ p, dias: diasEntre(ahora, p.fecha_vencimiento!) }))
+      .filter(({ dias }) => dias in TIPO_POR_DIAS)
+      .map(({ p, dias }) => ({
+        type: TIPO_POR_DIAS[dias],
+        userId: p.pagador.id,
+        phone: isPlaceholderPhone(p.pagador.phone) ? null : p.pagador.phone,
+        tanda: p.tanda.nombre,
+        monto: Number(p.monto_total),
+        vencimiento: p.fecha_vencimiento,
+      }));
 
     // In production: send push notifications and SMS for each category
-    // For now, return the counts as a log
-    const notifications = [
-      ...remind3d.map((p) => ({
-        type: "3_days_before",
-        userId: p.pagador.id,
-        phone: p.pagador.phone,
-        tanda: p.tanda.nombre,
-        monto: Number(p.tanda.monto_aportacion),
-        vencimiento: p.fecha_vencimiento,
-      })),
-      ...remind1d.map((p) => ({
-        type: "1_day_before",
-        userId: p.pagador.id,
-        phone: p.pagador.phone,
-        tanda: p.tanda.nombre,
-        monto: Number(p.tanda.monto_aportacion),
-        vencimiento: p.fecha_vencimiento,
-      })),
-      ...remindToday.map((p) => ({
-        type: "same_day",
-        userId: p.pagador.id,
-        phone: p.pagador.phone,
-        tanda: p.tanda.nombre,
-        monto: Number(p.tanda.monto_aportacion),
-        vencimiento: p.fecha_vencimiento,
-      })),
-    ];
+    const count = (type: string) =>
+      notifications.filter((n) => n.type === type).length;
 
     return NextResponse.json({
       reminders: {
-        threeDaysBefore: remind3d.length,
-        oneDayBefore: remind1d.length,
-        sameDay: remindToday.length,
+        threeDaysBefore: count("3_days_before"),
+        oneDayBefore: count("1_day_before"),
+        sameDay: count("same_day"),
       },
       notifications,
     });
   } catch (e) {
-    console.error("Cron tanda-remind error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Cron tanda-remind", e);
   }
 }
+
+// Vercel Cron invoca con GET; POST se mantiene para llamadas manuales.
+export const GET = handler;
+export const POST = handler;

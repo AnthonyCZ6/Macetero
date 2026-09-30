@@ -44,7 +44,7 @@ export function TandaPreviewList({ userId }: { userId: string | null }) {
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    fetch(`/api/tandas?userId=${encodeURIComponent(userId)}`)
+    fetch("/api/tandas")
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;

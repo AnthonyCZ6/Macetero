@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { createQuote } from "@/lib/etherfuse";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
-  try {
-    const { userId, type, amount, sourceAsset, targetAsset } = await req.json();
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
 
-    if (!userId || !type || !amount) {
+  try {
+    const { type, amount, sourceAsset, targetAsset } = await req.json();
+
+    if (!type || !(Number(amount) > 0)) {
       return NextResponse.json(
-        { error: "userId, type, and amount are required" },
+        { error: "type y un amount mayor a 0 son obligatorios" },
         { status: 400 }
       );
     }
@@ -61,10 +66,6 @@ export async function POST(req: NextRequest) {
       destinationAmount: quote.destinationAmount,
     });
   } catch (e) {
-    console.error("Quote error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Quote", e);
   }
 }

@@ -63,9 +63,10 @@ function isSimulatedEscrowContract(contractId: string): boolean {
 export default function TandaDetailPage() {
   const params = useParams();
   const id = params.id as string;
-  const { userId } = useBackendUser();
+  const { userId, hydrated } = useBackendUser();
   const [data, setData] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [payMsg, setPayMsg] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [payModalOpen, setPayModalOpen] = useState(false);
@@ -77,30 +78,33 @@ export default function TandaDetailPage() {
   }, [id]);
 
   useEffect(() => {
+    if (!hydrated) return;
+    if (!userId) {
+      setNeedsLogin(true);
+      return;
+    }
     let c = false;
+    setNeedsLogin(false);
     fetch(`/api/tandas/${id}`)
-      .then((r) => r.json())
-      .then((d) => {
+      .then(async (r) => {
+        const d = await r.json();
         if (c) return;
-        if (d.error) setErr(d.error);
+        if (r.status === 401) setNeedsLogin(true);
+        else if (d.error) setErr(d.error);
         else setData(d);
       })
       .catch(() => setErr("Error de red"));
     return () => {
       c = true;
     };
-  }, [id]);
+  }, [id, hydrated, userId]);
 
   async function confirmarPago() {
     if (!userId) return;
     setPayMsg(null);
     setPayLoading(true);
     try {
-      const res = await fetch(`/api/tandas/${id}/pay`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
+      const res = await fetch(`/api/tandas/${id}/pay`, { method: "POST" });
       const j = await res.json();
       if (!res.ok) {
         setPayMsg(j.error || "Error");
@@ -109,15 +113,33 @@ export default function TandaDetailPage() {
       setPayModalOpen(false);
       if (j.mode === "visual_demo" || !j.txHash) {
         setPayMsg(
-          `Aportación registrada: $${typeof j.montoPagado === "number" ? j.montoPagado.toFixed(2) : ""} (solo en la app).`
+          `Aportación registrada: $${typeof j.montoPagado === "number" ? j.montoPagado.toFixed(2) : ""}${j.mode === "visual_demo" ? " (solo en la app)" : ""}.`
         );
       } else {
         setPayMsg(`Pago registrado. Tx: ${String(j.txHash).slice(0, 16)}…`);
       }
+      if (j.aviso) setPayMsg((m) => `${m ?? ""} ${j.aviso}`);
       await refreshTanda();
     } finally {
       setPayLoading(false);
     }
+  }
+
+  if (needsLogin) {
+    return (
+      <div>
+        <Link href="/tandas" className="text-sm font-medium text-[var(--mx-green)] hover:text-[var(--mx-green-hover)] hover:underline">
+          ← Volver
+        </Link>
+        <p className="mx-highlight mt-4 rounded-xl px-4 py-3 text-sm">
+          Para ver esta tanda,{" "}
+          <Link href="/entrar" className="font-medium text-[var(--mx-green)] underline">
+            inicia sesión
+          </Link>{" "}
+          con el mismo correo con el que te uniste.
+        </p>
+      </div>
+    );
   }
 
   if (err || !data) {
@@ -135,7 +157,9 @@ export default function TandaDetailPage() {
   const puedoPagar =
     userId &&
     data.estado === "activa" &&
-    miParticipacion?.pagoActual?.estado !== "pagado";
+    ["pendiente", "en_gracia", "vencido"].includes(
+      miParticipacion?.pagoActual?.estado ?? ""
+    );
 
   const escrows = data.escrows ?? [];
   const tieneEscrowPeriodoActual = escrows.some(
@@ -213,7 +237,6 @@ export default function TandaDetailPage() {
           </p>
           <EscrowOrganizerDeploySection
             tandaId={id}
-            userId={userId}
             onDeployed={() => void refreshTanda()}
           />
         </section>
@@ -266,7 +289,6 @@ export default function TandaDetailPage() {
                 {userId && esMiembro && data.trustlessEscrowEnabled && (
                   <EscrowContractViewButton
                     tandaId={id}
-                    userId={userId}
                     periodo={escrowDestacado.periodo}
                     className="rounded-lg border border-[var(--mx-green)]/40 bg-[color-mix(in_srgb,var(--mx-green)_12%,white)] px-2 py-1 text-xs font-semibold text-[var(--mx-ink)] hover:bg-[color-mix(in_srgb,var(--mx-green)_18%,white)]"
                   >
@@ -327,7 +349,6 @@ export default function TandaDetailPage() {
                           !isSimulatedEscrowContract(e.contractId) && (
                           <EscrowContractViewButton
                             tandaId={id}
-                            userId={userId}
                             periodo={e.periodo}
                             className="text-[11px] font-semibold text-[var(--mx-brown)] underline-offset-2 hover:underline"
                           >
@@ -343,15 +364,6 @@ export default function TandaDetailPage() {
         </section>
       )}
 
-      {!userId && data.estado === "activa" && (
-        <p className="mx-highlight rounded-xl px-4 py-3 text-sm">
-          Para pagar tu aportación,{" "}
-          <Link href="/perfil" className="font-medium text-[var(--mx-green)] underline">
-            inicia sesión en Perfil
-          </Link>{" "}
-          con el mismo correo con el que te uniste a la tanda.
-        </p>
-      )}
       {puedoPagar && miParticipacion?.pagoActual && (
         <>
           <button

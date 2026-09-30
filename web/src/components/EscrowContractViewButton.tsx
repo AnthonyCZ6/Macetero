@@ -6,7 +6,6 @@ import type { EscrowDeployPreview } from "@/types/tanda-escrow-preview";
 
 type Props = {
   tandaId: string;
-  userId: string;
   /** Periodo del contrato a mostrar (debe coincidir con un escrow o con el periodo actual). */
   periodo: number;
   className?: string;
@@ -18,7 +17,6 @@ type Props = {
  */
 export function EscrowContractViewButton({
   tandaId,
-  userId,
   periodo,
   className,
   children,
@@ -35,7 +33,7 @@ export function EscrowContractViewButton({
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/tandas/${encodeURIComponent(tandaId)}/escrow-contract-view?userId=${encodeURIComponent(userId)}&periodo=${encodeURIComponent(String(periodo))}`
+        `/api/tandas/${encodeURIComponent(tandaId)}/escrow-contract-view?periodo=${encodeURIComponent(String(periodo))}`
       );
       const j = (await res.json()) as EscrowDeployPreview & { error?: string };
       if (!res.ok) throw new Error(j.error ?? "No se pudo cargar el contrato");
@@ -45,7 +43,7 @@ export function EscrowContractViewButton({
     } finally {
       setLoading(false);
     }
-  }, [tandaId, userId, periodo]);
+  }, [tandaId, periodo]);
 
   const close = useCallback(() => {
     setOpen(false);

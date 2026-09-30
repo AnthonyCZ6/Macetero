@@ -6,7 +6,7 @@ const STORAGE_KEY = "macetero_acta_api_key";
 
 type Network = "testnet" | "mainnet";
 
-export function ActaApiKeySection({ userId }: { userId: string }) {
+export function ActaApiKeySection() {
   const [network, setNetwork] = useState<Network>("testnet");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +40,6 @@ export function ActaApiKeySection({ userId }: { userId: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
           name: "Macetero web",
           network,
         }),

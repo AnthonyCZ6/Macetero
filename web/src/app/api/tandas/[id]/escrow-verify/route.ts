@@ -1,28 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
+import { assertMiembroDeTanda } from "@/lib/tanda-acceso";
 
 /**
  * GET — Datos para comprobar que el escrow quedó registrado en Macetero (y referencias en cadena).
  * Solo participantes u organizador de la tanda.
- *
- * Query: `userId` (requerido)
  */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
+
   try {
-    const userId = req.nextUrl.searchParams.get("userId")?.trim();
-    if (!userId) {
-      return NextResponse.json({ error: "userId es requerido" }, { status: 400 });
-    }
-
     const { id: tandaId } = await params;
+    await assertMiembroDeTanda(tandaId, userId);
 
-    const tanda = await prisma.tanda.findUnique({
+    const tanda = await prisma.tanda.findUniqueOrThrow({
       where: { id: tandaId },
       include: {
-        turnos: { select: { participante_id: true } },
         escrows: {
           orderBy: { periodo: "asc" },
           select: {
@@ -35,16 +34,6 @@ export async function GET(
         },
       },
     });
-
-    if (!tanda) {
-      return NextResponse.json({ error: "Tanda no encontrada" }, { status: 404 });
-    }
-
-    const isOrganizer = tanda.organizador_id === userId;
-    const isParticipant = tanda.turnos.some((t) => t.participante_id === userId);
-    if (!isOrganizer && !isParticipant) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 403 });
-    }
 
     const base =
       process.env.NEXT_PUBLIC_STELLAR_EXPERT_CONTRACT_BASE?.replace(/\/$/, "") ??
@@ -66,10 +55,6 @@ export async function GET(
       count: tanda.escrows.length,
     });
   } catch (e) {
-    console.error("escrow-verify:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Error" },
-      { status: 500 }
-    );
+    return errorResponse("Escrow verify", e);
   }
 }

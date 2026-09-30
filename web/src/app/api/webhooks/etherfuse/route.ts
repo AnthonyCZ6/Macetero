@@ -1,19 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { verifyWebhookSignature } from "@/lib/etherfuse";
 
+/**
+ * Webhook de Etherfuse (JSON + `x-signature` HMAC-SHA256 hex del body).
+ * En producción exige ETHERFUSE_WEBHOOK_SECRET (sin él rechaza todo); en
+ * desarrollo, si no está definido, acepta sin firma para probar con fixtures.
+ */
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
     const signature = req.headers.get("x-signature") || "";
     const secret = process.env["ETHERFUSE_WEBHOOK_SECRET"] || "";
 
+    if (!secret && process.env.NODE_ENV === "production") {
+      console.error("ETHERFUSE_WEBHOOK_SECRET no está configurado; webhook rechazado");
+      return NextResponse.json({ error: "Webhook no configurado" }, { status: 503 });
+    }
     if (secret && !verifyWebhookSignature(rawBody, signature, secret)) {
       console.warn("Webhook signature verification failed");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    const payload = JSON.parse(rawBody);
+    let payload;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+    }
 
     // ── order_updated ──────────────────────────────────────────────
     if (payload.order_updated) {
@@ -101,10 +116,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ received: true });
   } catch (e) {
-    console.error("Webhook error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Etherfuse webhook", e);
   }
 }

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
 import {
   getEscrowContractViewForMember,
   trustlessWorkConfigured,
 } from "@/lib/tanda-escrow";
-import { prisma } from "@/lib/prisma";
 
 /**
  * GET — texto del contrato (mismo cuerpo que al firmar) para el modal de solo lectura.
@@ -13,17 +15,15 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
+
   try {
     if (!trustlessWorkConfigured()) {
       return NextResponse.json(
         { error: "Trustless Work no está configurado en el servidor" },
         { status: 503 }
       );
-    }
-
-    const userId = req.nextUrl.searchParams.get("userId")?.trim();
-    if (!userId) {
-      return NextResponse.json({ error: "userId es requerido" }, { status: 400 });
     }
 
     const { id: tandaId } = await params;
@@ -48,13 +48,6 @@ export async function GET(
     const preview = await getEscrowContractViewForMember(tandaId, userId, periodo);
     return NextResponse.json(preview);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Error";
-    const status =
-      msg.includes("Solo participantes") || msg.includes("organizador")
-        ? 403
-        : msg.includes("no encontrada")
-          ? 404
-          : 400;
-    return NextResponse.json({ error: msg }, { status });
+    return errorResponse("Escrow contract view", e);
   }
 }

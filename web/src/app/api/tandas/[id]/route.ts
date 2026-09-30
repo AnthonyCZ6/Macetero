@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
+import { isPlaceholderPhone } from "@/lib/phone-placeholder";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
+import { assertMiembroDeTanda } from "@/lib/tanda-acceso";
 import { trustlessWorkConfigured } from "@/lib/tanda-escrow";
 import { isTandaPayVisualOnly } from "@/lib/tanda-pay-visual";
 
+function nombreVisible(user: { name: string | null; phone: string | null }): string {
+  return user.name || (isPlaceholderPhone(user.phone) ? null : user.phone) || "Participante";
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
+
   try {
     const { id: tandaId } = await params;
+    await assertMiembroDeTanda(tandaId, userId);
 
-    const tanda = await prisma.tanda.findUnique({
+    const tanda = await prisma.tanda.findUniqueOrThrow({
       where: { id: tandaId },
       include: {
         organizador: { select: { id: true, name: true, phone: true } },
@@ -35,10 +47,6 @@ export async function GET(
       },
     });
 
-    if (!tanda) {
-      return NextResponse.json({ error: "Tanda not found" }, { status: 404 });
-    }
-
     // Build participant status summary
     const participants = tanda.turnos.map((turno) => {
       const currentPago = tanda.pagos.find(
@@ -48,7 +56,7 @@ export async function GET(
       );
       return {
         userId: turno.participante_id,
-        name: turno.participante.name || turno.participante.phone,
+        name: nombreVisible(turno.participante),
         turno: turno.numero_turno,
         estadoTurno: turno.estado_turno,
         fechaCobro: turno.fecha_cobro,
@@ -59,16 +67,20 @@ export async function GET(
               montoTotal: Number(currentPago.monto_total),
               cargoRetraso: Number(currentPago.cargo_retraso),
               diasRetraso: currentPago.dias_retraso,
-              fechaPago: currentPago.fecha_pago,
+              fechaVencimiento: currentPago.fecha_vencimiento,
+              fechaPago:
+                currentPago.estado === "pagado" ? currentPago.fecha_pago : null,
             }
           : null,
       };
     });
 
-    // Payment history for all periods
+    // Payment history for all periods (las aportaciones canceladas no cuentan)
     const periodos = [];
     for (let p = 1; p <= tanda.num_participantes; p++) {
-      const pagosPeriodo = tanda.pagos.filter((pg) => pg.periodo === p);
+      const pagosPeriodo = tanda.pagos.filter(
+        (pg) => pg.periodo === p && pg.estado !== "cancelado"
+      );
       periodos.push({
         periodo: p,
         pagados: pagosPeriodo.filter((pg) => pg.estado === "pagado").length,
@@ -85,17 +97,15 @@ export async function GET(
     }));
 
     const trustlessEscrowEnabled = trustlessWorkConfigured();
-    // El deploy del cliente pasa por /api/trustless/deploy-unsigned,
-    // así que basta con que la key exista en el servidor.
-    const trustlessClientReady = Boolean(
-      process.env["TRUSTLESS_WORK_API_KEY"]?.trim()
-    );
 
     return NextResponse.json({
       id: tanda.id,
       nombre: tanda.nombre,
       organizadorId: tanda.organizador_id,
-      organizador: tanda.organizador,
+      organizador: {
+        id: tanda.organizador.id,
+        name: nombreVisible(tanda.organizador),
+      },
       montoAportacion: Number(tanda.monto_aportacion),
       frecuencia: tanda.frecuencia,
       numParticipantes: tanda.num_participantes,
@@ -109,14 +119,11 @@ export async function GET(
       periodos,
       escrows,
       trustlessEscrowEnabled,
-      trustlessClientReady,
+      // El deploy del organizador lo hace el servidor (/escrow-deploy).
+      trustlessClientReady: trustlessEscrowEnabled,
       payVisualOnly: isTandaPayVisualOnly(),
     });
   } catch (e) {
-    console.error("Get tanda error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Get tanda", e);
   }
 }

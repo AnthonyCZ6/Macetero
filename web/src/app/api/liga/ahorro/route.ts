@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
+import { getSessionUserId } from "@/lib/session";
 
 function initialsFromName(name: string | null | undefined): string {
   if (!name?.trim()) return "?";
@@ -13,10 +15,10 @@ function displayName(name: string | null | undefined): string {
   return "Participante";
 }
 
-/** GET /api/liga/ahorro?userId= — ranking por MXN depositados vía onramp (proxy de ahorro). */
+/** GET /api/liga/ahorro — ranking por MXN depositados vía onramp (proxy de ahorro); `me` si hay sesión. */
 export async function GET(req: NextRequest) {
   try {
-    const userId = req.nextUrl.searchParams.get("userId");
+    const userId = getSessionUserId(req);
 
     const sums = await prisma.order.groupBy({
       by: ["userId"],
@@ -89,10 +91,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ entries, me });
   } catch (e) {
-    console.error("Ahorro leaderboard error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Ahorro leaderboard", e);
   }
 }

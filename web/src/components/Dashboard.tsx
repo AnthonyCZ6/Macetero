@@ -30,7 +30,7 @@ export function Dashboard() {
       return;
     }
     setProfileLoading(true);
-    fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
+    fetch("/api/user/profile")
       .then((r) => r.json())
       .then((d) => {
         if (d.error) return;

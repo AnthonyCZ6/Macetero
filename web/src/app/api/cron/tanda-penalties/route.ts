@@ -1,193 +1,238 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { cronUnauthorizedResponse, isCronAuthorized } from "@/lib/cron-auth";
+import { diasEntre, sumarDias } from "@/lib/fechas";
 import {
-  LATE_FEE_PER_WEEK,
-  POINTS_LATE_PENALTY,
-  POINTS_EXPULSION,
-  DAYS_LEVEL_DOWNGRADE,
-  DAYS_POSTPONE_TURN,
-  DAYS_EXPULSION,
   BLOCK_DAYS,
+  PAGO_ESTADOS_ABIERTOS,
+  PAGO_ESTADOS_SALDADOS,
+  POINTS_EXPULSION,
+  POINTS_LATE_PENALTY,
 } from "@/lib/tanda";
+import { planearRetraso, reordenarAlFinal } from "@/lib/tanda-penalties";
+import { cerrarPeriodoSiCompleto } from "@/lib/tanda-periodo";
+
+/** El cierre de periodos puede liberar escrows en cadena. */
+export const maxDuration = 300;
+
+type Accion = { pagoId?: string; tandaId: string; userId?: string; action: string };
 
 /**
- * Cron: process overdue payments — gracia, fees, level downgrade,
- * turn postponement, and expulsion.
- * Called daily. Requires `Authorization: Bearer <CRON_SECRET>`.
+ * Manda al final el turno de un participante atrasado (solo si su turno aún no
+ * llega). Se hace en una transacción con un número temporal para no chocar con
+ * @@unique([tanda_id, numero_turno]). Queda como `pospuesto` para no repetirse.
  */
-export async function POST(req: NextRequest) {
+async function posponerTurno(
+  tandaId: string,
+  participanteId: string
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const tanda = await tx.tanda.findUniqueOrThrow({ where: { id: tandaId } });
+    const turno = await tx.turno.findUnique({
+      where: {
+        tanda_id_participante_id: { tanda_id: tandaId, participante_id: participanteId },
+      },
+    });
+    if (
+      !turno ||
+      turno.estado_turno !== "pendiente" ||
+      turno.numero_turno <= tanda.periodo_actual ||
+      turno.numero_turno >= tanda.num_participantes
+    ) {
+      return false;
+    }
+
+    const turnos = await tx.turno.findMany({ where: { tanda_id: tandaId } });
+    const idPorNumero = new Map(turnos.map((t) => [t.numero_turno, t.id]));
+    const fechaPorNumero = new Map(turnos.map((t) => [t.numero_turno, t.fecha_cobro]));
+
+    await tx.turno.update({ where: { id: turno.id }, data: { numero_turno: -1 } });
+    for (const [actual, nuevo] of reordenarAlFinal(
+      turno.numero_turno,
+      tanda.num_participantes
+    )) {
+      const id = actual === turno.numero_turno ? turno.id : idPorNumero.get(actual);
+      if (!id) continue;
+      await tx.turno.update({
+        where: { id },
+        data: {
+          numero_turno: nuevo,
+          fecha_cobro: fechaPorNumero.get(nuevo) ?? null,
+          ...(id === turno.id ? { estado_turno: "pospuesto" } : {}),
+        },
+      });
+    }
+    return true;
+  });
+}
+
+/**
+ * Expulsa a un participante: su turno queda `expulsado`, sus aportaciones
+ * abiertas se cancelan (así el cron no vuelve a procesarlas) y se bloquea
+ * BLOCK_DAYS días. Si su turno aún no llegaba, ese periodo se saltará.
+ */
+async function expulsar(
+  tandaId: string,
+  participanteId: string,
+  ahora: Date
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const turno = await tx.turno.findUnique({
+      where: {
+        tanda_id_participante_id: { tanda_id: tandaId, participante_id: participanteId },
+      },
+    });
+    if (!turno || turno.estado_turno === "expulsado") return false;
+
+    await tx.turno.update({
+      where: { id: turno.id },
+      data: { estado_turno: "expulsado" },
+    });
+    await tx.pago.updateMany({
+      where: {
+        tanda_id: tandaId,
+        pagador_id: participanteId,
+        estado: { in: PAGO_ESTADOS_ABIERTOS },
+      },
+      data: { estado: "cancelado" },
+    });
+    await tx.user.update({
+      where: { id: participanteId },
+      data: {
+        blocked_tandas: true,
+        block_undate: sumarDias(ahora, BLOCK_DAYS),
+        score: { decrement: POINTS_EXPULSION },
+      },
+    });
+    return true;
+  });
+}
+
+/**
+ * Cron diario: gracia, cargos, baja de nivel, posponer turno y expulsión para
+ * pagos atrasados del periodo en curso; además reintenta cierres de periodo
+ * que quedaron pendientes (p. ej. si falló la liberación del escrow).
+ * Requiere `Authorization: Bearer <CRON_SECRET>`.
+ */
+async function handler(req: NextRequest) {
   if (!isCronAuthorized(req)) {
     return cronUnauthorizedResponse();
   }
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const ahora = new Date();
+    const actions: Accion[] = [];
+    const errors: Array<{ tandaId: string; pagoId?: string; error: string }> = [];
 
-    // Find all unpaid payments past their due date
-    const overdue = await prisma.pago.findMany({
+    const candidatos = await prisma.pago.findMany({
       where: {
-        estado: { in: ["pendiente", "en_gracia", "vencido"] },
-        fecha_vencimiento: { lt: today },
+        estado: { in: PAGO_ESTADOS_ABIERTOS },
+        fecha_vencimiento: { lt: ahora },
+        tanda: { estado: "activa" },
       },
       include: {
-        tanda: true,
-        pagador: true,
+        tanda: { select: { periodo_actual: true } },
+        pagador: { select: { level: true } },
       },
     });
+    // Solo el periodo en curso: los siguientes aún no se pueden pagar.
+    const atrasados = candidatos.filter((p) => p.periodo === p.tanda.periodo_actual);
 
-    const actions: Array<{ pagoId: string; action: string; userId: string }> = [];
+    for (const pago of atrasados) {
+      const dias = diasEntre(pago.fecha_vencimiento!, ahora);
+      if (dias < 1) continue;
+      const plan = planearRetraso({ estado: pago.estado, diasRetraso: dias });
 
-    for (const pago of overdue) {
-      const dueDate = new Date(pago.fecha_vencimiento!);
-      dueDate.setHours(0, 0, 0, 0);
-      const diffMs = today.getTime() - dueDate.getTime();
-      const diasRetraso = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-      // Update dias_retraso
-      await prisma.pago.update({
-        where: { id: pago.id },
-        data: { dias_retraso: diasRetraso },
-      });
-
-      // Day 1-2: Grace period
-      if (diasRetraso >= 1 && diasRetraso <= 2 && pago.estado === "pendiente") {
-        await prisma.pago.update({
-          where: { id: pago.id },
-          data: { estado: "en_gracia" },
-        });
-        actions.push({ pagoId: pago.id, action: "gracia", userId: pago.pagador_id });
-      }
-
-      // Day 3+: Vencido, apply late fee
-      if (diasRetraso >= 3 && pago.estado !== "vencido") {
-        const weeksLate = Math.ceil(diasRetraso / 7);
-        const cargo = weeksLate * LATE_FEE_PER_WEEK;
-        await prisma.pago.update({
-          where: { id: pago.id },
-          data: {
-            estado: "vencido",
-            cargo_retraso: cargo,
-            monto_total: Number(pago.monto_base) + cargo,
-          },
-        });
-        // Penalty: -100 points, reset streak
-        await prisma.user.update({
-          where: { id: pago.pagador_id },
-          data: {
-            score: { decrement: POINTS_LATE_PENALTY },
-            streak: 0,
-          },
-        });
-        actions.push({ pagoId: pago.id, action: `vencido_cargo_${cargo}`, userId: pago.pagador_id });
-      }
-
-      // Update late fee for already-vencido payments (weekly escalation)
-      if (diasRetraso >= 3 && pago.estado === "vencido") {
-        const weeksLate = Math.ceil(diasRetraso / 7);
-        const cargo = weeksLate * LATE_FEE_PER_WEEK;
-        if (cargo !== Number(pago.cargo_retraso)) {
-          await prisma.pago.update({
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.pago.update({
             where: { id: pago.id },
             data: {
-              cargo_retraso: cargo,
-              monto_total: Number(pago.monto_base) + cargo,
+              dias_retraso: plan.diasRetraso,
+              estado: plan.estado,
+              cargo_retraso: plan.cargoRetraso,
+              monto_total: Number(pago.monto_base) + plan.cargoRetraso,
             },
           });
-        }
-      }
-
-      // Day 8: Level downgrade
-      if (diasRetraso >= DAYS_LEVEL_DOWNGRADE && pago.pagador.level !== "BASICO") {
-        await prisma.user.update({
-          where: { id: pago.pagador_id },
-          data: { level: "BASICO" },
-        });
-        actions.push({ pagoId: pago.id, action: "level_downgrade", userId: pago.pagador_id });
-      }
-
-      // Day 15: Postpone turn to end
-      if (diasRetraso >= DAYS_POSTPONE_TURN) {
-        const turno = await prisma.turno.findUnique({
-          where: {
-            tanda_id_participante_id: {
-              tanda_id: pago.tanda_id,
-              participante_id: pago.pagador_id,
-            },
-          },
-        });
-
-        if (turno && turno.estado_turno === "pendiente") {
-          const maxTurno = await prisma.turno.aggregate({
-            where: { tanda_id: pago.tanda_id },
-            _max: { numero_turno: true },
-          });
-
-          const currentMax = maxTurno._max.numero_turno || pago.tanda.num_participantes;
-
-          // Only postpone if not already last
-          if (turno.numero_turno < currentMax) {
-            // Move everyone between turno+1..max down by 1
-            const turnosToMove = await prisma.turno.findMany({
-              where: {
-                tanda_id: pago.tanda_id,
-                numero_turno: { gt: turno.numero_turno, lte: currentMax },
-              },
-              orderBy: { numero_turno: "asc" },
+          if (plan.penalizar) {
+            await tx.user.update({
+              where: { id: pago.pagador_id },
+              data: { score: { decrement: POINTS_LATE_PENALTY }, streak: 0 },
             });
-
-            for (const t of turnosToMove) {
-              await prisma.turno.update({
-                where: { id: t.id },
-                data: { numero_turno: t.numero_turno - 1 },
-              });
-            }
-
-            await prisma.turno.update({
-              where: { id: turno.id },
-              data: { numero_turno: currentMax },
-            });
-
-            actions.push({ pagoId: pago.id, action: "turn_postponed", userId: pago.pagador_id });
           }
+          if (plan.degradarNivel && pago.pagador.level !== "BASICO") {
+            await tx.user.update({
+              where: { id: pago.pagador_id },
+              data: { level: "BASICO" },
+            });
+          }
+        });
+        if (plan.estado !== pago.estado) {
+          actions.push({
+            pagoId: pago.id,
+            tandaId: pago.tanda_id,
+            userId: pago.pagador_id,
+            action: plan.estado === "vencido" ? `vencido_cargo_${plan.cargoRetraso}` : plan.estado,
+          });
         }
+        if (plan.degradarNivel && pago.pagador.level !== "BASICO") {
+          actions.push({ pagoId: pago.id, tandaId: pago.tanda_id, userId: pago.pagador_id, action: "level_downgrade" });
+        }
+        if (plan.posponerTurno && (await posponerTurno(pago.tanda_id, pago.pagador_id))) {
+          actions.push({ pagoId: pago.id, tandaId: pago.tanda_id, userId: pago.pagador_id, action: "turn_postponed" });
+        }
+        if (plan.expulsar && (await expulsar(pago.tanda_id, pago.pagador_id, ahora))) {
+          actions.push({ pagoId: pago.id, tandaId: pago.tanda_id, userId: pago.pagador_id, action: "expelled" });
+        }
+      } catch (e) {
+        console.error(`tanda-penalties pago ${pago.id}:`, e);
+        errors.push({
+          tandaId: pago.tanda_id,
+          pagoId: pago.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
+    }
 
-      // Day 21: Expulsion
-      if (diasRetraso >= DAYS_EXPULSION) {
-        const blockDate = new Date(today);
-        blockDate.setDate(blockDate.getDate() + BLOCK_DAYS);
-
-        await prisma.user.update({
-          where: { id: pago.pagador_id },
-          data: {
-            blocked_tandas: true,
-            block_undate: blockDate,
-            score: { decrement: POINTS_EXPULSION },
-          },
-        });
-
-        // Remove the turno
-        await prisma.turno.deleteMany({
-          where: {
-            tanda_id: pago.tanda_id,
-            participante_id: pago.pagador_id,
-          },
-        });
-
-        actions.push({ pagoId: pago.id, action: "expelled", userId: pago.pagador_id });
+    // Periodos que ya no tienen pagos abiertos pero siguen sin cerrarse
+    // (expulsiones de hoy o cierres que fallaron antes).
+    const activas = await prisma.tanda.findMany({
+      where: { estado: "activa" },
+      select: { id: true, periodo_actual: true },
+    });
+    for (const tanda of activas) {
+      const abiertos = await prisma.pago.count({
+        where: {
+          tanda_id: tanda.id,
+          periodo: tanda.periodo_actual,
+          estado: { notIn: PAGO_ESTADOS_SALDADOS },
+        },
+      });
+      if (abiertos > 0) continue;
+      try {
+        const cierre = await cerrarPeriodoSiCompleto(tanda.id, tanda.periodo_actual, ahora);
+        if (cierre.cerrado) {
+          actions.push({
+            tandaId: tanda.id,
+            action: cierre.tandaCompletada ? "tanda_completed" : `period_${tanda.periodo_actual}_closed`,
+          });
+        }
+      } catch (e) {
+        console.error(`tanda-penalties cierre ${tanda.id}:`, e);
+        errors.push({ tandaId: tanda.id, error: e instanceof Error ? e.message : String(e) });
       }
     }
 
     return NextResponse.json({
-      processed: overdue.length,
+      processed: atrasados.length,
       actions,
+      errors,
     });
   } catch (e) {
-    console.error("Cron tanda-penalties error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Cron tanda-penalties", e);
   }
 }
+
+// Vercel Cron invoca con GET; POST se mantiene para llamadas manuales.
+export const GET = handler;
+export const POST = handler;

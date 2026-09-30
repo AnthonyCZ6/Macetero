@@ -79,7 +79,7 @@ export default function PerfilPage() {
       return;
     }
     let cancelled = false;
-    fetch(`/api/user/profile?userId=${encodeURIComponent(userId)}`)
+    fetch("/api/user/profile")
       .then((r) => r.json())
       .then((d) => {
         if (cancelled || d.error) return;
@@ -179,7 +179,7 @@ export default function PerfilPage() {
               title="Mi ahorro"
               subtitle="Saldo, movimientos y referencia XLM"
             />
-            <ActaApiKeySection userId={userId} />
+            <ActaApiKeySection />
             <MenuRow
               href="/liga"
               icon={<span aria-hidden>🏆</span>}

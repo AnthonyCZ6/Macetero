@@ -78,10 +78,8 @@ export default function LigaPage() {
   useEffect(() => {
     setLoading(true);
     setErr(null);
-    const q = userId
-      ? `?userId=${encodeURIComponent(userId)}`
-      : "";
-    fetch(`/api/liga/leaderboard${q}`)
+    // `me` sale de la sesión; userId solo dispara la recarga al iniciar/cerrar sesión.
+    fetch("/api/liga/leaderboard")
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
@@ -103,7 +101,7 @@ export default function LigaPage() {
     }
     setAhorroLoading(true);
     setAhorroErr(null);
-    fetch(`/api/liga/ahorro?userId=${encodeURIComponent(userId)}`)
+    fetch("/api/liga/ahorro")
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {

@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { decrypt } from "@/lib/crypto";
 import { signTransaction, submitTransaction } from "@/lib/stellar";
 import { createOrder } from "@/lib/etherfuse";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
+
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  try {
-    const { userId, quoteId, amount } = await req.json();
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
 
-    if (!userId || !quoteId || !amount) {
+  try {
+    const { quoteId, amount } = await req.json();
+
+    if (!quoteId || !(Number(amount) > 0)) {
       return NextResponse.json(
-        { error: "userId, quoteId, and amount are required" },
+        { error: "quoteId y un amount mayor a 0 son obligatorios" },
         { status: 400 }
       );
     }
@@ -81,10 +88,6 @@ export async function POST(req: NextRequest) {
       statusPage: efOrder.statusPage,
     });
   } catch (e) {
-    console.error("Offramp error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Offramp", e);
   }
 }

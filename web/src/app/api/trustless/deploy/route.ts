@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { errorResponse } from "@/lib/api-error";
+import { isBearerAuthorized } from "@/lib/cron-auth";
 import {
   deploySingleReleaseFromPostmanBody,
   getSignerKeypair,
@@ -8,13 +10,23 @@ import {
   findContractIdByEngagement,
 } from "@/lib/trustless-work";
 
+export const maxDuration = 120;
+
 /**
- * POST — mismo cuerpo que Postman `POST /deployer/single-release`.
+ * POST — herramienta de administración (Postman): mismo cuerpo que
+ * `POST /deployer/single-release`. Firma con la cuenta del operador, así que
+ * exige `Authorization: Bearer <ADMIN_API_SECRET>` (sin la variable, 401 siempre).
  * El campo `signer` del JSON se ignora: siempre usa la cuenta de TRUSTLESS_SIGNER_SECRET / TRUSTLESS_WORK_OPERATOR_SECRET.
  *
  * Trustline: si no envías `trustline`, usa USDC testnet por defecto (GBBD47…).
  */
 export async function POST(req: NextRequest) {
+  if (!isBearerAuthorized(req, "ADMIN_API_SECRET")) {
+    return NextResponse.json(
+      { error: "No autorizado: falta o no coincide ADMIN_API_SECRET" },
+      { status: 401 }
+    );
+  }
   try {
     const body = await req.json();
 
@@ -86,10 +98,6 @@ export async function POST(req: NextRequest) {
       trustline: merged.trustline ?? getTrustlineConfig(),
     });
   } catch (e) {
-    console.error("Trustless deploy error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Trustless deploy", e);
   }
 }

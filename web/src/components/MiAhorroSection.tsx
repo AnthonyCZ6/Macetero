@@ -57,10 +57,10 @@ export function MiAhorroSection({
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      fetch(`/api/liga/ahorro?userId=${encodeURIComponent(userId)}`).then((r) =>
+      fetch("/api/liga/ahorro").then((r) =>
         r.json()
       ),
-      fetch(`/api/user/movimientos?userId=${encodeURIComponent(userId)}`).then(
+      fetch("/api/user/movimientos").then(
         (r) => r.json()
       ),
     ])

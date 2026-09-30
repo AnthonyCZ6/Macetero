@@ -1,5 +1,7 @@
 import {
+  Asset,
   Keypair,
+  StrKey,
   TransactionBuilder,
   Networks,
   rpc,
@@ -56,21 +58,35 @@ export async function submitTransaction(signedXdr: string) {
   return { hash: response.hash, status: result.status };
 }
 
+const STROOPS_PER_XLM = BigInt(10_000_000);
+
+/** Stroops (entero) → XLM con 7 decimales, sin pérdida de precisión. */
+export function stroopsToXlm(stroops: bigint): string {
+  const sign = stroops < BigInt(0) ? "-" : "";
+  const abs = stroops < BigInt(0) ? -stroops : stroops;
+  const whole = abs / STROOPS_PER_XLM;
+  const frac = (abs % STROOPS_PER_XLM).toString().padStart(7, "0");
+  return `${sign}${whole}.${frac}`;
+}
+
 /**
  * Saldo de XLM **nativo** en cadena (cuenta clásica `G…` o contrato `C…`).
  * Coincide con lo que suele mostrar Stellar Expert en “balances” de la cuenta.
+ * Devuelve "0" si la cuenta no existe (sin fondear) o el RPC falla.
  */
-export async function getBalance(publicKey: string): Promise<string> {
+export async function getBalance(address: string): Promise<string> {
   const server = getServer();
   try {
-    const account = await server.getAccount(publicKey);
-    // Soroban RPC getAccount returns balances on the account object
-    const nativeBalance =
-      "balances" in account
-        ? (account as unknown as { balances: { asset_type: string; balance: string }[] })
-            .balances.find((b) => b.asset_type === "native")?.balance ?? "0"
-        : "0";
-    return nativeBalance;
+    if (StrKey.isValidContract(address)) {
+      const res = await server.getSACBalance(
+        address,
+        Asset.native(),
+        NETWORK_PASSPHRASE
+      );
+      return stroopsToXlm(BigInt(res.balanceEntry?.amount ?? "0"));
+    }
+    const entry = await server.getAccountEntry(address);
+    return stroopsToXlm(BigInt(entry.balance().toString()));
   } catch {
     return "0";
   }

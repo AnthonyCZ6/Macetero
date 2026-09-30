@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { generateInviteCode, calcEndDate } from "@/lib/tanda";
+import { AppError, errorResponse, isUniqueViolation } from "@/lib/api-error";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
+import {
+  FRECUENCIAS,
+  bloqueoVigente,
+  calcEndDate,
+  generateInviteCode,
+} from "@/lib/tanda";
 import { maxTandasForLevel, maxTandasExceededMessage } from "@/lib/tanda-limits";
 import { simulateEscrowOnCreate } from "@/lib/tanda-simulate-escrow";
 
-export async function GET(req: NextRequest) {
-  try {
-    const userId = req.nextUrl.searchParams.get("userId");
-    if (!userId) {
-      return NextResponse.json({ error: "userId is required" }, { status: 400 });
-    }
+const MAX_PARTICIPANTES = 50;
 
+export async function GET(req: NextRequest) {
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
+
+  try {
     const turnos = await prisma.turno.findMany({
       where: { participante_id: userId },
       include: {
@@ -81,30 +88,38 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ tandas });
   } catch (e) {
-    console.error("List tandas error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("List tandas", e);
   }
 }
 
 export async function POST(req: NextRequest) {
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
+
   try {
-    const { userId, nombre, monto_aportacion, frecuencia, num_participantes, fecha_inicio } =
+    const { nombre, monto_aportacion, frecuencia, num_participantes, fecha_inicio } =
       await req.json();
 
-    if (!userId || !nombre || !monto_aportacion || !num_participantes || !fecha_inicio) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
-
+    const nombreLimpio = typeof nombre === "string" ? nombre.trim().slice(0, 80) : "";
     const freq = frecuencia || "semanal";
     const monto = parseFloat(monto_aportacion);
-    const numPart = parseInt(num_participantes);
+    const numPart = Number(num_participantes);
     const startDate = new Date(fecha_inicio);
 
-    if (monto <= 0 || numPart < 2) {
-      return NextResponse.json({ error: "Invalid monto or participants" }, { status: 400 });
+    if (!nombreLimpio || !fecha_inicio) {
+      throw new AppError("Faltan campos obligatorios");
+    }
+    if (!(FRECUENCIAS as readonly string[]).includes(freq)) {
+      throw new AppError("La frecuencia debe ser semanal, quincenal o mensual");
+    }
+    if (!Number.isFinite(monto) || monto <= 0) {
+      throw new AppError("El monto de aportación debe ser mayor a 0");
+    }
+    if (!Number.isInteger(numPart) || numPart < 2 || numPart > MAX_PARTICIPANTES) {
+      throw new AppError(`El número de participantes debe estar entre 2 y ${MAX_PARTICIPANTES}`);
+    }
+    if (Number.isNaN(startDate.getTime())) {
+      throw new AppError("La fecha de inicio no es válida");
     }
 
     const user = await prisma.user.findUnique({
@@ -116,97 +131,96 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // Rule 1: no puede crear mientras esté bloqueado (el bloqueo vence solo)
+    if (bloqueoVigente(user)) {
+      throw new AppError("No puedes crear tandas mientras tu cuenta esté bloqueada", 403);
+    }
+
     // Rule 6: organizer must have at least the first payment amount
     // (simplified: just check user exists and has wallet)
     if (!user.wallet) {
-      return NextResponse.json(
-        { error: "You need a wallet to create a tanda" },
-        { status: 400 }
-      );
+      throw new AppError("Necesitas una wallet para crear una tanda");
     }
 
     // Rule 7: check max simultaneous tandas by level
     const activeTandas = await prisma.turno.count({
       where: {
         participante_id: userId,
+        estado_turno: { not: "expulsado" },
         tanda: { estado: { in: ["pendiente", "activa"] } },
       },
     });
 
     const maxAllowed = maxTandasForLevel(user.level);
     if (activeTandas >= maxAllowed) {
-      return NextResponse.json(
-        { error: maxTandasExceededMessage(user.level) },
-        { status: 400 }
-      );
+      throw new AppError(maxTandasExceededMessage(user.level));
     }
 
-    // Rule 1: cannot create if has overdue payments > 3 days
-    if (user.blocked_tandas) {
-      return NextResponse.json(
-        { error: "Cannot create tandas while blocked" },
-        { status: 400 }
-      );
-    }
-
-    const codigo = generateInviteCode();
     const fechaFin = calcEndDate(startDate, freq, numPart);
     const montoPremio = monto * numPart;
 
-    const tanda = await prisma.tanda.create({
-      data: {
-        nombre,
-        organizador_id: userId,
-        monto_aportacion: monto,
-        frecuencia: freq,
-        num_participantes: numPart,
-        fecha_inicio: startDate,
-        fecha_fin: fechaFin,
-        estado: "pendiente",
-        codigo_invitacion: codigo,
-        periodo_actual: 0,
-      },
-    });
+    // El código de invitación es corto: si choca con uno existente, se genera otro.
+    for (let intento = 0; ; intento++) {
+      const codigo = generateInviteCode();
+      try {
+        const { tanda, simulatedEscrow } = await prisma.$transaction(async (tx) => {
+          const tanda = await tx.tanda.create({
+            data: {
+              nombre: nombreLimpio,
+              organizador_id: userId,
+              monto_aportacion: monto,
+              frecuencia: freq,
+              num_participantes: numPart,
+              fecha_inicio: startDate,
+              fecha_fin: fechaFin,
+              estado: "pendiente",
+              codigo_invitacion: codigo,
+              periodo_actual: 0,
+            },
+          });
 
-    // Assign organizer as turn 1
-    await prisma.turno.create({
-      data: {
-        tanda_id: tanda.id,
-        participante_id: userId,
-        numero_turno: 1,
-        monto_premio: montoPremio,
-      },
-    });
+          // Assign organizer as turn 1
+          await tx.turno.create({
+            data: {
+              tanda_id: tanda.id,
+              participante_id: userId,
+              numero_turno: 1,
+              monto_premio: montoPremio,
+            },
+          });
 
-    let simulatedEscrow = false;
-    if (simulateEscrowOnCreate()) {
-      const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-      await prisma.tandaEscrow.create({
-        data: {
-          tanda_id: tanda.id,
-          periodo: 1,
-          contract_id: `SIM_${tanda.id.replace(/-/g, "").slice(0, 12)}_${suffix}`,
-          engagement_id: `sim-create-${tanda.id.slice(0, 8)}-${suffix}`,
-          estado: "deployed",
-        },
-      });
-      simulatedEscrow = true;
+          let simulatedEscrow = false;
+          if (simulateEscrowOnCreate()) {
+            const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+            await tx.tandaEscrow.create({
+              data: {
+                tanda_id: tanda.id,
+                periodo: 1,
+                contract_id: `SIM_${tanda.id.replace(/-/g, "").slice(0, 12)}_${suffix}`,
+                engagement_id: `sim-create-${tanda.id.slice(0, 8)}-${suffix}`,
+                estado: "deployed",
+              },
+            });
+            simulatedEscrow = true;
+          }
+          return { tanda, simulatedEscrow };
+        });
+
+        return NextResponse.json({
+          tandaId: tanda.id,
+          codigoInvitacion: codigo,
+          turnoAsignado: 1,
+          montoPremio,
+          fechaInicio: startDate,
+          fechaFin: fechaFin,
+          simulatedEscrow,
+        });
+      } catch (e) {
+        if (isUniqueViolation(e) && intento < 4) continue;
+        throw e;
+      }
     }
-
-    return NextResponse.json({
-      tandaId: tanda.id,
-      codigoInvitacion: codigo,
-      turnoAsignado: 1,
-      montoPremio,
-      fechaInicio: startDate,
-      fechaFin: fechaFin,
-      simulatedEscrow,
-    });
   } catch (e) {
-    console.error("Create tanda error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Create tanda", e);
   }
 }

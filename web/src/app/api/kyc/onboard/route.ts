@@ -1,18 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
 import { getOnboardingUrl } from "@/lib/etherfuse";
+import { getSessionUserId, unauthorizedResponse } from "@/lib/session";
+
+/** Solo se permite volver a una ruta de esta misma app (evita redirecciones abiertas). */
+function safeReturnUrl(returnUrl: unknown, origin: string): string {
+  if (typeof returnUrl === "string") {
+    try {
+      const url = new URL(returnUrl, origin);
+      if (url.origin === origin) return url.toString();
+    } catch {
+      /* URL inválida: se usa la raíz */
+    }
+  }
+  return `${origin}/`;
+}
 
 export async function POST(req: NextRequest) {
-  try {
-    const { userId, returnUrl } = await req.json();
+  const userId = getSessionUserId(req);
+  if (!userId) return unauthorizedResponse();
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: "userId is required" },
-        { status: 400 }
-      );
-    }
+  try {
+    const { returnUrl } = await req.json().catch(() => ({}));
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -42,7 +53,7 @@ export async function POST(req: NextRequest) {
       customerId,
       bankAccountId,
       user.wallet.stellar_public_key,
-      returnUrl || `${req.nextUrl.origin}/`
+      safeReturnUrl(returnUrl, req.nextUrl.origin)
     );
 
     // Store the bank account placeholder
@@ -61,10 +72,6 @@ export async function POST(req: NextRequest) {
       bankAccountId,
     });
   } catch (e) {
-    console.error("KYC onboard error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("KYC onboard", e);
   }
 }

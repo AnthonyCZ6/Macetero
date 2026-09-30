@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { errorResponse } from "@/lib/api-error";
+import { getSessionUserId } from "@/lib/session";
 
 function initialsFromName(name: string | null | undefined): string {
   if (!name?.trim()) return "?";
@@ -13,10 +15,10 @@ function displayName(name: string | null | undefined): string {
   return "Participante";
 }
 
-/** GET /api/liga/leaderboard?userId= — ranking por puntos (puntualidad). */
+/** GET /api/liga/leaderboard — ranking por puntos (puntualidad); `me` si hay sesión. */
 export async function GET(req: NextRequest) {
   try {
-    const userId = req.nextUrl.searchParams.get("userId");
+    const userId = getSessionUserId(req);
 
     const top = await prisma.user.findMany({
       select: {
@@ -86,10 +88,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ entries, me });
   } catch (e) {
-    console.error("Leaderboard error:", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Internal error" },
-      { status: 500 }
-    );
+    return errorResponse("Leaderboard", e);
   }
 }

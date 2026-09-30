@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/tanda-start", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/tanda-penalties", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/tanda-remind", "schedule": "0 14 * * *" }
+  ]
+}

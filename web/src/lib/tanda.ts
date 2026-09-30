@@ -14,17 +14,19 @@ export function generateInviteCode(): string {
   return `TANDA-${year}-${suffix}`;
 }
 
+export const FRECUENCIAS = ["semanal", "quincenal", "mensual"] as const;
+
+export function diasPorFrecuencia(frecuencia: string): number {
+  return frecuencia === "quincenal" ? 14 : frecuencia === "mensual" ? 30 : 7;
+}
+
 /** Calculate the end date of a tanda given start, frequency, and number of periods. */
 export function calcEndDate(
   start: Date,
   frecuencia: string,
   periodos: number
 ): Date {
-  const end = new Date(start);
-  const days =
-    frecuencia === "quincenal" ? 14 : frecuencia === "mensual" ? 30 : 7;
-  end.setDate(end.getDate() + days * periodos);
-  return end;
+  return calcDueDate(start, frecuencia, periodos);
 }
 
 /** Calculate the due date for a specific period. */
@@ -34,10 +36,39 @@ export function calcDueDate(
   periodo: number
 ): Date {
   const due = new Date(start);
-  const days =
-    frecuencia === "quincenal" ? 14 : frecuencia === "mensual" ? 30 : 7;
-  due.setDate(due.getDate() + days * periodo);
+  due.setDate(due.getDate() + diasPorFrecuencia(frecuencia) * periodo);
   return due;
+}
+
+/** Pagos que todavía deben cubrirse: bloquean el cierre del periodo y generan penalizaciones. */
+export const PAGO_ESTADOS_ABIERTOS: string[] = ["pendiente", "en_gracia", "vencido"];
+
+/**
+ * Pagos que ya no bloquean el cierre del periodo. `cancelado` = aportación de
+ * un participante expulsado o de un periodo que se salta.
+ */
+export const PAGO_ESTADOS_SALDADOS: string[] = ["pagado", "cancelado"];
+
+/** Estado que corresponde a un pago abierto según sus días de retraso. */
+export function estadoPagoPorRetraso(diasRetraso: number): string {
+  if (diasRetraso >= 3) return "vencido";
+  if (diasRetraso >= 1) return "en_gracia";
+  return "pendiente";
+}
+
+/** Cargo acumulado: LATE_FEE_PER_WEEK por semana (o fracción) a partir del día 3. */
+export function cargoPorRetraso(diasRetraso: number): number {
+  if (diasRetraso < 3) return 0;
+  return Math.ceil(diasRetraso / 7) * LATE_FEE_PER_WEEK;
+}
+
+/** Bloqueo vigente tras una expulsión (el bloqueo vence en `block_undate`). */
+export function bloqueoVigente(
+  user: { blocked_tandas: boolean; block_undate: Date | null },
+  ahora = new Date()
+): boolean {
+  if (!user.blocked_tandas) return false;
+  return !user.block_undate || user.block_undate > ahora;
 }
 
 /** Late fee per week of delay. */
