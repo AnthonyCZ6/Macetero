@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { prisma } from "./prisma.service";
+import { prisma } from "../web/src/lib/prisma";
 
 async function main() {
   const user = await prisma.user.upsert({
