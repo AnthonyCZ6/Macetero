@@ -19,6 +19,8 @@ npm run db:studio
 npm run db:test        # upsert + list users via server/test-db.ts (imports web/src/lib/prisma)
 npm run test:etherfuse-webhook [fixture.json]   # POST a signed fixture to a running dev server
 npm run test:web       # = vitest in web/
+npm run test:e2e       # build web/, then server/e2e.ts: db push + `next start` + HTTP E2E on a TEST DB
+                       # (.env.pruebas.local or E2E_DATABASE_URL; refuses the DB of .env / web/.env.local)
 
 # web/
 npm run dev            # http://localhost:3000

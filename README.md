@@ -25,6 +25,7 @@ Las variables están documentadas en `.env.example`. La raíz usa `.env` (Prisma
 | `npm run db:test` | Prueba inserción y lectura de usuarios |
 | `npm run test:etherfuse-webhook [fixture]` | Envía un webhook firmado al servidor local |
 | `npm run test:web` | Tests de `web/` |
+| `npm run test:e2e` | Compila `web/` y corre pruebas end-to-end por HTTP contra una base de **pruebas** (`DATABASE_URL` de `.env.pruebas.local` o `E2E_DATABASE_URL`) |
 
 ## Scripts (`web/`)
 

@@ -8,7 +8,8 @@
     "db:studio": "npx prisma studio",
     "db:test": "tsx server/test-db.ts",
     "test:etherfuse-webhook": "tsx server/send-etherfuse-webhook.ts",
-    "test:web": "npm run test --prefix web"
+    "test:web": "npm run test --prefix web",
+    "test:e2e": "npm run build --prefix web && tsx server/e2e.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.5.0",
